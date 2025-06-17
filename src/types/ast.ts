@@ -38,6 +38,7 @@ export interface ConversionContext {
   parentChain: string[];
   indentLevel: number;
   currentScope: string;
+  integerDivision?: boolean;
 }
 
 export interface ConversionRule {
