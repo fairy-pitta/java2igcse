@@ -76,7 +76,7 @@ export class JavaParser {
         continue;
       }
       
-      if (/[;(){}\[\],]/.test(char)) {
+      if (/[;(){}\[\],:]/.test(char)) {
         if (current) {
           tokens.push(current);
           current = '';
@@ -614,7 +614,7 @@ export class JavaParser {
     this.consume(')', 'Expected ")" after if condition');
     
     const thenBranch = this.parseStatement();
-    let elseBranch: ASTNode | undefined;
+    let elseBranch: ASTNode | null | undefined;
     
     if (this.match('else')) {
       elseBranch = this.parseStatement();
@@ -635,7 +635,6 @@ export class JavaParser {
     this.consume('(', 'Expected "(" after "for"');
     
     // Check for enhanced for loop (for-each)
-    const checkpoint = this.current;
     let isEnhancedFor = false;
     
     // Look ahead to see if this is an enhanced for loop

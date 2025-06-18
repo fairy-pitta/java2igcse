@@ -1,0 +1,48 @@
+import { ASTNode } from '../types/ast';
+export declare class JavaParser {
+    private tokens;
+    private current;
+    private line;
+    private column;
+    parse(code: string): ASTNode;
+    private tokenize;
+    private parseStatement;
+    private parseVariableDeclaration;
+    private parseForVariableDeclaration;
+    private parseExpressionStatement;
+    private parseExpression;
+    private parseAssignment;
+    private parseLogicalOr;
+    private parseLogicalAnd;
+    private parseEquality;
+    private parseComparison;
+    private parseTerm;
+    private parseFactor;
+    private parseUnary;
+    private parseCall;
+    private finishCall;
+    private getMemberExpressionName;
+    private parsePrimary;
+    private parseNumber;
+    private match;
+    private check;
+    private advance;
+    private isAtEnd;
+    private peek;
+    private previous;
+    private consume;
+    private isType;
+    private isIdentifier;
+    private isNumber;
+    private isString;
+    private getCurrentPosition;
+    private parseIfStatement;
+    private parseForStatement;
+    private parseWhileStatement;
+    private parseDoWhileStatement;
+    private parseSwitchStatement;
+    private parseBreakStatement;
+    private parseContinueStatement;
+    private parseBlockStatement;
+}
+//# sourceMappingURL=JavaParser.d.ts.map

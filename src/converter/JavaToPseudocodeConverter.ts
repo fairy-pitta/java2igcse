@@ -222,7 +222,8 @@ export class JavaToPseudocodeConverter {
   }
 
   private convertBlock(node: ASTNode, context: ConversionContext): string[] {
-    const statements = node.children || node.body || [];
+    const statementsRaw = node.children || node.body || [];
+    const statements = Array.isArray(statementsRaw) ? statementsRaw : [statementsRaw];
     const results: string[] = [];
     
     for (const stmt of statements) {
@@ -315,7 +316,7 @@ export class JavaToPseudocodeConverter {
       if (node.elseBranch.type === 'IfStatement') {
         // Handle else if
         const elseIfResult = this.convertIfStatement(node.elseBranch, context);
-        result.push(`ELSE IF ${elseIfResult[0].substring(3)}`); // Remove 'IF ' prefix and add 'ELSE IF'
+        result.push(`ELSE IF ${elseIfResult[0]?.substring(3) || ''}`); // Remove 'IF ' prefix and add 'ELSE IF'
         result.push(...elseIfResult.slice(1, -1)); // Skip first and last lines
       } else {
         result.push('ELSE');
@@ -377,7 +378,13 @@ export class JavaToPseudocodeConverter {
       }
     }
     
-    const body = this.convertNode(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
+    const bodyNode = node.body!;
+    let body: string[];
+    if (Array.isArray(bodyNode)) {
+      body = bodyNode.flatMap(stmt => this.convertNode(stmt, { ...context, indentLevel: context.indentLevel + 1 }));
+    } else {
+      body = this.convertNode(bodyNode, { ...context, indentLevel: context.indentLevel + 1 });
+    }
     result.push(...body.map(line => `   ${line}`));
     result.push('ENDFOR');
     
@@ -389,7 +396,13 @@ export class JavaToPseudocodeConverter {
     const iterable = this.convertNode(node.iterable!, context);
     const result = [`FOR EACH ${elementName} IN ${iterable.join(' ')}`];
     
-    const body = this.convertNode(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
+    const bodyNode = node.body!;
+    let body: string[];
+    if (Array.isArray(bodyNode)) {
+      body = bodyNode.flatMap(stmt => this.convertNode(stmt, { ...context, indentLevel: context.indentLevel + 1 }));
+    } else {
+      body = this.convertNode(bodyNode, { ...context, indentLevel: context.indentLevel + 1 });
+    }
     result.push(...body.map(line => `   ${line}`));
     result.push('ENDFOR');
     
@@ -400,7 +413,13 @@ export class JavaToPseudocodeConverter {
     const condition = this.convertNode(node.condition!, context);
     const result = [`WHILE ${condition.join(' ')}`];
     
-    const body = this.convertNode(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
+    const bodyNode = node.body!;
+    let body: string[];
+    if (Array.isArray(bodyNode)) {
+      body = bodyNode.flatMap(stmt => this.convertNode(stmt, { ...context, indentLevel: context.indentLevel + 1 }));
+    } else {
+      body = this.convertNode(bodyNode, { ...context, indentLevel: context.indentLevel + 1 });
+    }
     result.push(...body.map(line => `   ${line}`));
     result.push('ENDWHILE');
     
@@ -410,7 +429,13 @@ export class JavaToPseudocodeConverter {
   private convertDoWhileStatement(node: ASTNode, context: ConversionContext): string[] {
     const result = ['REPEAT'];
     
-    const body = this.convertNode(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
+    const bodyNode = node.body!;
+    let body: string[];
+    if (Array.isArray(bodyNode)) {
+      body = bodyNode.flatMap(stmt => this.convertNode(stmt, { ...context, indentLevel: context.indentLevel + 1 }));
+    } else {
+      body = this.convertNode(bodyNode, { ...context, indentLevel: context.indentLevel + 1 });
+    }
     result.push(...body.map(line => `   ${line}`));
     
     // Convert condition to UNTIL (negate the condition)
@@ -428,7 +453,8 @@ export class JavaToPseudocodeConverter {
     // Process cases
     for (const caseNode of node.cases || []) {
       const testValue = this.convertNode(caseNode.test!, context);
-      const statements = caseNode.consequent || [];
+      const consequent = caseNode.consequent || [];
+      const statements = Array.isArray(consequent) ? consequent : [consequent];
       
       // Filter out break statements and convert other statements
       const caseBody = statements
@@ -445,7 +471,8 @@ export class JavaToPseudocodeConverter {
     
     // Process default case
     if (node.defaultCase) {
-      const statements = node.defaultCase.consequent || [];
+      const consequent = node.defaultCase.consequent || [];
+      const statements = Array.isArray(consequent) ? consequent : [consequent];
       const defaultBody = statements
         .filter((stmt: ASTNode) => stmt.type !== 'BreakStatement')
         .map((stmt: ASTNode) => this.convertNode(stmt, context))
@@ -462,11 +489,11 @@ export class JavaToPseudocodeConverter {
     return result;
   }
 
-  private convertBreakStatement(node: ASTNode, context: ConversionContext): string[] {
+  private convertBreakStatement(_node: ASTNode, _context: ConversionContext): string[] {
     return ['EXIT FOR'];
   }
 
-  private convertContinueStatement(node: ASTNode, context: ConversionContext): string[] {
+  private convertContinueStatement(_node: ASTNode, _context: ConversionContext): string[] {
     return ['NEXT FOR'];
   }
 

@@ -15,13 +15,13 @@ export interface ASTNode {
   name?: string;
   returnType?: string;
   parameters?: ASTNode[];
-  body?: ASTNode;
+  body?: ASTNode | ASTNode[] | null;
   expression?: ASTNode;
-  condition?: ASTNode;
+  condition?: ASTNode | null;
   thenStatement?: ASTNode;
   elseStatement?: ASTNode;
-  init?: ASTNode;
-  update?: ASTNode;
+  init?: ASTNode | null;
+  update?: ASTNode | null;
   left?: ASTNode;
   right?: ASTNode;
   operator?: string;
@@ -29,6 +29,18 @@ export interface ASTNode {
   initializer?: ASTNode;
   object?: ASTNode;
   property?: ASTNode;
+  test?: ASTNode | null;
+  discriminant?: ASTNode;
+  cases?: ASTNode[];
+  consequent?: ASTNode | ASTNode[];
+  defaultCase?: ASTNode;
+  elementType?: string;
+  thenBranch?: ASTNode | null;
+  elementName?: string;
+  iterable?: ASTNode;
+  elseBranch?: ASTNode | null;
+  argument?: ASTNode;
+  prefix?: boolean;
 }
 
 export interface ConversionContext {
