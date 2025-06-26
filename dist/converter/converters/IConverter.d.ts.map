@@ -1,0 +1,1 @@
+{"version":3,"file":"IConverter.d.ts","sourceRoot":"","sources":["../../../src/converter/converters/IConverter.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,iBAAiB,EAAE,MAAM,oBAAoB,CAAC;AAEhE,MAAM,WAAW,UAAU;IACzB,OAAO,CAAC,IAAI,EAAE,OAAO,EAAE,OAAO,EAAE,iBAAiB,GAAG,MAAM,EAAE,CAAC;CAC9D"}

@@ -1,69 +1,48 @@
-import { ASTNode, ConversionContext, ConversionError } from '../types/ast';
+import { ASTNode, ConversionContext } from '../types/ast.js';
+import { ConverterFactory } from './converters/ConverterFactory.js';
+
+const MAX_DEPTH = 100; // Maximum recursion depth
 
 export class RecursionGuard {
   static convert(
     node: ASTNode, 
-    context: ConversionContext, 
-    converter: (node: ASTNode, context: ConversionContext) => string[]
+    context: ConversionContext
   ): string[] {
-    // 深度チェック
-    if (context.depth > context.maxDepth) {
-      throw new ConversionError(
-        `Maximum recursion depth exceeded: ${context.maxDepth}`,
-        node,
-        context
-      );
+    const newContext = {
+      ...context,
+      depth: (context.depth || 0) + 1,
+      visitedNodes: context.visitedNodes || new Set<string>(),
+    };
+
+    if (newContext.depth > MAX_DEPTH) {
+      console.error('Maximum recursion depth exceeded');
+      return ['ERROR: Maximum recursion depth exceeded'];
     }
+
+    // Generate a unique identifier for the node based on its type and properties
+    const nodeId = `${node.type}:${node.start || ''}:${node.end || ''}`;
     
-    // 循環参照チェック
-    const nodeId = this.getNodeId(node);
-    if (context.visitedNodes.has(nodeId)) {
-      throw new ConversionError(
-        `Circular reference detected: ${nodeId}`,
-        node,
-        context
-      );
+    if (newContext.visitedNodes.has(nodeId)) {
+      console.error('Circular reference detected');
+      return ['ERROR: Circular reference detected'];
     }
-    
-    // ノードを訪問済みとしてマーク
-    context.visitedNodes.add(nodeId);
-    context.depth++;
-    context.parentChain.push(nodeId);
-    
+
+    newContext.visitedNodes.add(nodeId);
+
     try {
-      return converter(node, context);
+      const converter = ConverterFactory.getConverter(node.type);
+      if (!converter) {
+        console.warn(`No converter for type: ${node.type}`);
+        return [];
+      }
+      const result = converter.convert(node, newContext);
+      return Array.isArray(result) ? result : [result];
     } finally {
-      // クリーンアップ
-      context.visitedNodes.delete(nodeId);
-      context.depth--;
-      context.parentChain.pop();
+      newContext.visitedNodes.delete(nodeId);
     }
   }
-  
-  private static getNodeId(node: ASTNode): string {
-    // ノードの一意識別子を生成
-    const position = node.position;
-    const positionStr = position 
-      ? `${position.line}:${position.column}:${position.offset}`
-      : 'unknown';
-    
-    const typeStr = node.type || 'unknown';
-    const nameStr = node.name || node.value || '';
-    
-    return `${typeStr}@${positionStr}:${nameStr}`;
-  }
-  
-  /**
-   * デバッグ用：現在の再帰状態を取得
-   */
-  static getRecursionInfo(context: ConversionContext): string {
-    return `Depth: ${context.depth}/${context.maxDepth}, Chain: ${context.parentChain.join(' -> ')}`;
-  }
-  
-  /**
-   * 安全な深度での実行かチェック
-   */
-  static isSafeDepth(context: ConversionContext, threshold: number = 0.8): boolean {
-    return context.depth < (context.maxDepth * threshold);
+
+  static getDebugInfo(node: ASTNode, context: ConversionContext): string {
+    return `Node Type: ${node.type}, Depth: ${context.depth || 0}, Visited Nodes: ${context.visitedNodes ? context.visitedNodes.size : 0}`;
   }
 }

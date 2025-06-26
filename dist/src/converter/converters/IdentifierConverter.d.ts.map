@@ -1,0 +1,1 @@
+{"version":3,"file":"IdentifierConverter.d.ts","sourceRoot":"","sources":["../../../../src/converter/converters/IdentifierConverter.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,iBAAiB,EAAE,MAAM,aAAa,CAAC;AACzD,OAAO,EAAE,UAAU,EAAE,MAAM,cAAc,CAAC;AAE1C,qBAAa,mBAAoB,YAAW,UAAU;IAC7C,OAAO,CAAC,IAAI,EAAE,OAAO,EAAE,OAAO,EAAE,iBAAiB,GAAG,MAAM,EAAE;CAGpE"}

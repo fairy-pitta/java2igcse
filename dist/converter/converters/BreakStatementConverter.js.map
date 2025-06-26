@@ -1,0 +1,1 @@
+{"version":3,"file":"BreakStatementConverter.js","sourceRoot":"","sources":["../../../src/converter/converters/BreakStatementConverter.ts"],"names":[],"mappings":"AAGA,MAAM,OAAO,uBAAuB;IAC3B,OAAO,CAAC,IAAa,EAAE,OAA0B;QACtD,OAAO,CAAC,UAAU,CAAC,CAAC;IACtB,CAAC;CACF"}

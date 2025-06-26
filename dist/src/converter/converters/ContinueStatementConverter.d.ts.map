@@ -1,0 +1,1 @@
+{"version":3,"file":"ContinueStatementConverter.d.ts","sourceRoot":"","sources":["../../../../src/converter/converters/ContinueStatementConverter.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,iBAAiB,EAAE,MAAM,aAAa,CAAC;AACzD,OAAO,EAAE,UAAU,EAAE,MAAM,cAAc,CAAC;AAE1C,qBAAa,0BAA2B,YAAW,UAAU;IACpD,OAAO,CAAC,IAAI,EAAE,OAAO,EAAE,OAAO,EAAE,iBAAiB,GAAG,MAAM,EAAE;CAcpE"}

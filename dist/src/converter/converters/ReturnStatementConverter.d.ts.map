@@ -1,0 +1,1 @@
+{"version":3,"file":"ReturnStatementConverter.d.ts","sourceRoot":"","sources":["../../../../src/converter/converters/ReturnStatementConverter.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,iBAAiB,EAAE,MAAM,aAAa,CAAC;AACzD,OAAO,EAAE,UAAU,EAAE,MAAM,cAAc,CAAC;AAE1C,qBAAa,wBAAyB,YAAW,UAAU;IAClD,OAAO,CAAC,IAAI,EAAE,OAAO,EAAE,OAAO,EAAE,iBAAiB,GAAG,MAAM,EAAE;CAQpE"}

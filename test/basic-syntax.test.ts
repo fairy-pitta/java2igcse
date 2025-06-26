@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { JavaToPseudocodeConverter } from '../src/converter/JavaToPseudocodeConverter';
-import { ASTNode } from '../src/types/ast';
+import { JavaToPseudocodeConverter } from 'src/converter/JavaToPseudocodeConverter';
+import { ASTNode } from 'src/types/ast';
 
 describe('Basic Syntax Conversion', () => {
   let converter: JavaToPseudocodeConverter;

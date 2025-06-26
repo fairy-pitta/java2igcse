@@ -1,0 +1,1 @@
+{"version":3,"file":"ProgramConverter.d.ts","sourceRoot":"","sources":["../../../src/converter/converters/ProgramConverter.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,iBAAiB,EAAE,MAAM,aAAa,CAAC;AACzD,OAAO,EAAE,UAAU,EAAE,MAAM,cAAc,CAAC;AAI1C,qBAAa,gBAAiB,YAAW,UAAU;IAC1C,OAAO,CAAC,IAAI,EAAE,OAAO,EAAE,OAAO,EAAE,iBAAiB,GAAG,MAAM,EAAE;CAOpE"}
