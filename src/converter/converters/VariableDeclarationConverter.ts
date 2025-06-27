@@ -1,10 +1,10 @@
-import { ASTNode, ConversionContext } from '../../types/ast';
-import { IConverter } from './IConverter';
-import { ConverterFactory } from './ConverterFactory';
-import { mapJavaTypeToIGCSE } from '../../utils/indent';
+import { ASTNode, ConversionContext } from '../../types/ast.js';
+import { IConverter } from './IConverter.js';
+import { ConverterFactory } from './ConverterFactory.js';
+import { mapJavaTypeToIGCSE } from '../../utils/indent.js';
 
 export class VariableDeclarationConverter implements IConverter {
-    convert(node: ASTNode, context: ConversionContext): string {
+    convert(node: ASTNode, context: ConversionContext): string | string[] {
         const declarations: string[] = [];
         const assignments: string[] = [];
 
@@ -13,7 +13,8 @@ export class VariableDeclarationConverter implements IConverter {
 
         if (isFinal && node.initializer) {
             const valueConverter = ConverterFactory.getConverter(node.initializer.type);
-            const value = valueConverter ? valueConverter.convert(node.initializer, context) : '';
+            const result = valueConverter ? valueConverter.convert(node.initializer, context) : '';
+            const value = Array.isArray(result) ? result.join(' ') : result;
             return `CONSTANT ${node.name} = ${value}`;
         }
 
@@ -27,13 +28,14 @@ export class VariableDeclarationConverter implements IConverter {
                     assignments.push(`INPUT ${node.name}`);
                 }
             } else {
-                const valueConverter = ConverterFactory.getConverter(node.initializer.type);
-                const value = valueConverter ? valueConverter.convert(node.initializer, context) : '';
+                const valueConverter = ConverterFactory.getConverter(node['initializer']['type']);
+                const result = valueConverter ? valueConverter.convert(node['initializer'], context) : '';
+                const value = Array.isArray(result) ? result.join(' ') : result;
                 let valueStr = value;
                 if (dataType === 'BOOLEAN') {
                     valueStr = valueStr.toUpperCase();
                 }
-                assignments.push(`${node.name} ← ${valueStr}`);
+                assignments.push(`${node['name']} ← ${valueStr}`);
             }
         }
 

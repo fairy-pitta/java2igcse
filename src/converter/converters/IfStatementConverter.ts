@@ -1,22 +1,22 @@
-import { ASTNode, ConversionContext } from '../../types/ast';
-import { IConverter } from './IConverter';
-import { applyIndent } from '../../utils/indent';
-import { ConverterFactory } from './ConverterFactory';
+import { ASTNode, ConversionContext } from '../../types/ast.js';
+import { IConverter } from './IConverter.js';
+import { applyIndent } from '../../utils/indent.js';
+import { ConverterFactory } from './ConverterFactory.js';
 
 export class IfStatementConverter implements IConverter {
   public convert(node: ASTNode, context: ConversionContext): string[] {
-    const condition = this.convertExpression(node.condition!, context);
+    const condition = this.convertExpression(node['condition'], context);
     const result: string[] = [];
 
     result.push(`IF ${condition} THEN`);
 
     const thenContext = { ...context, indentLevel: context.indentLevel + 1 };
-    const thenBranch = this.convertBlock(node.thenBranch!, thenContext);
+    const thenBranch = this.convertBlock(node['thenBranch'], thenContext);
     result.push(...applyIndent(thenBranch, 1));
 
-    if (node.elseBranch) {
-      if (node.elseBranch.type === 'IfStatement') {
-        const elseIfResult = this.convert(node.elseBranch, context);
+    if (node['elseBranch']) {
+      if (node['elseBranch']['type'] === 'IfStatement') {
+        const elseIfResult = this.convert(node['elseBranch'], context);
         if (elseIfResult && elseIfResult.length > 0) {
           result.push(`ELSE ${elseIfResult[0]!.trim()}`);
           result.push(...elseIfResult.slice(1));
@@ -24,7 +24,7 @@ export class IfStatementConverter implements IConverter {
       } else {
         result.push('ELSE');
         const elseContext = { ...context, indentLevel: context.indentLevel + 1 };
-        const elseBranch = this.convertBlock(node.elseBranch!, elseContext);
+        const elseBranch = this.convertBlock(node['elseBranch'], elseContext);
         result.push(...applyIndent(elseBranch, 1));
         result.push('ENDIF');
       }
@@ -34,12 +34,15 @@ export class IfStatementConverter implements IConverter {
   }
 
   private convertExpression(node: ASTNode, context: ConversionContext): string {
-    const converter = ConverterFactory.getConverter(node);
-    return converter.convert(node, context).join(' ');
+    const converter = ConverterFactory.getConverter(node.type);
+    const result = converter.convert(node, context);
+    return Array.isArray(result) ? result.join(' ') : result;
   }
 
   private convertBlock(node: ASTNode, context: ConversionContext): string[] {
-    const converter = ConverterFactory.getConverter(node);
-    return converter.convert(node, context);
+    const converter = ConverterFactory.getConverter(node['type']);
+    if (!converter) return [];
+    const result = converter.convert(node, context);
+    return Array.isArray(result) ? result : [result];
   }
 }
