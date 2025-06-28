@@ -1,20 +1,24 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
-import { applyIndent } from '@/utils/indent';
-import { RecursionGuard } from '@/converter/RecursionGuard';
+import { indent } from '../../utils/indent';
+import { RecursionGuard } from '../RecursionGuard';
 
 export class DoWhileStatementConverter implements IConverter {
-  public convert(node: ASTNode, context: ConversionContext): string[] {
-    const result = ['REPEAT'];
+  public convert(node: ASTNode, context: ConversionContext): string {
+    const result: string[] = ['REPEAT'];
     
-    const body = RecursionGuard.convert(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
-    result.push(...applyIndent(body, 1));
+    if (node.body) {
+      const body = RecursionGuard.convert(node.body, { ...context, indentLevel: (context.indentLevel || 0) + 1 });
+      result.push(body);
+    }
     
-    const condition = RecursionGuard.convert(node.condition!, context).join(' ');
-    const negatedCondition = this.negateCondition(condition);
-    result.push(`UNTIL ${negatedCondition}`);
+    if (node.condition) {
+      const condition = RecursionGuard.convert(node.condition, context);
+      const negatedCondition = this.negateCondition(condition);
+      result.push(`UNTIL ${negatedCondition}`);
+    }
     
-    return applyIndent(result, context.indentLevel);
+    return result.map(line => indent(context.indentLevel || 0) + line).join('\n');
   }
 
   private negateCondition(condition: string): string {

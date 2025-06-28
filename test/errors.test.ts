@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest';
-import { JavaParser } from 'src/parser/JavaParser';
+import { JavaParser } from '../src/parser/JavaParser';
 
 describe('Parser - Error Handling', () => {
   it('should throw an error for an incomplete statement', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { JavaParser } from 'src/parser/JavaParser';
-import { ASTNode } from 'src/types/ast';
+import { JavaParser } from '../src/parser/JavaParser';
+import { ASTNode } from '../src/types/ast';
 
 describe('Parser - Control Flow', () => {
   it('should parse a nested if-else statement', () => {

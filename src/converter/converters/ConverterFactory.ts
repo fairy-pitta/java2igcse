@@ -1,25 +1,25 @@
-import { IConverter } from './IConverter.js';
-import { VariableDeclarationConverter } from './VariableDeclarationConverter.js';
-import { AssignmentConverter } from './AssignmentConverter.js';
-import { LiteralConverter } from './LiteralConverter.js';
-import { IdentifierConverter } from './IdentifierConverter.js';
-import { BinaryExpressionConverter } from './BinaryExpressionConverter.js';
-import { UnaryExpressionConverter } from './UnaryExpressionConverter.js';
-import { ExpressionStatementConverter } from './ExpressionStatementConverter.js';
-import { MethodCallConverter } from './MethodCallConverter.js';
-import { ProgramConverter } from './ProgramConverter.js';
-import { BlockStatementConverter } from './BlockStatementConverter.js';
-import { IfStatementConverter } from './IfStatementConverter.js';
-import { ForStatementConverter } from './ForStatementConverter.js';
-import { WhileStatementConverter } from './WhileStatementConverter.js';
-import { MethodDeclarationConverter } from './MethodDeclarationConverter.js';
-import { ClassDeclarationConverter } from './ClassDeclarationConverter.js';
-import { ReturnStatementConverter } from './ReturnStatementConverter.js';
-import { UpdateExpressionConverter } from './UpdateExpressionConverter.js';
-import { BreakStatementConverter } from './BreakStatementConverter.js';
-import { ContinueStatementConverter } from './ContinueStatementConverter.js';
-import { DoWhileStatementConverter } from './DoWhileStatementConverter.js';
-import { SwitchStatementConverter } from './SwitchStatementConverter.js';
+import { IConverter } from './IConverter';
+import { VariableDeclarationConverter } from './VariableDeclarationConverter';
+import { AssignmentConverter } from './AssignmentConverter';
+import { LiteralConverter } from './LiteralConverter';
+import { IdentifierConverter } from './IdentifierConverter';
+import { BinaryExpressionConverter } from './BinaryExpressionConverter';
+import { UnaryExpressionConverter } from './UnaryExpressionConverter';
+import { ExpressionStatementConverter } from './ExpressionStatementConverter';
+import { MethodCallConverter } from './MethodCallConverter';
+import { ProgramConverter } from './ProgramConverter';
+import { BlockStatementConverter } from './BlockStatementConverter';
+import { IfStatementConverter } from './IfStatementConverter';
+import { ForStatementConverter } from './ForStatementConverter';
+import { WhileStatementConverter } from './WhileStatementConverter';
+import { MethodDeclarationConverter } from './MethodDeclarationConverter';
+import { ClassDeclarationConverter } from './ClassDeclarationConverter';
+import { ReturnStatementConverter } from './ReturnStatementConverter';
+import { UpdateExpressionConverter } from './UpdateExpressionConverter';
+import { BreakStatementConverter } from './BreakStatementConverter';
+import { ContinueStatementConverter } from './ContinueStatementConverter';
+import { DoWhileStatementConverter } from './DoWhileStatementConverter';
+import { SwitchStatementConverter } from './SwitchStatementConverter';
 
 export class ConverterFactory {
     static getConverter(type: string): IConverter | undefined {

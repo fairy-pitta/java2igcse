@@ -1,4 +1,4 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
 
 export class BreakStatementConverter implements IConverter {

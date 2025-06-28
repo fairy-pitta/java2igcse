@@ -1,12 +1,12 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
-import { applyIndent } from '@/utils/indent';
+import { indent } from '../../utils/indent';
 import { ConverterFactory } from './ConverterFactory';
-import { RecursionGuard } from '@/converter/RecursionGuard';
+import { RecursionGuard } from '../RecursionGuard';
 
 export class SwitchStatementConverter implements IConverter {
-  public convert(node: ASTNode, context: ConversionContext): string[] {
-    const discriminant = RecursionGuard.convert(node.discriminant!, context).join(' ');
+  public convert(node: ASTNode, context: ConversionContext): string {
+    const discriminant = node.discriminant ? RecursionGuard.convert(node.discriminant, context) : '';
     const result = [`CASE OF ${discriminant}`];
     
     const caseGroups: { tests: string[], consequent: ASTNode[] }[] = [];
@@ -51,6 +51,6 @@ export class SwitchStatementConverter implements IConverter {
     }
     
     result.push('ENDCASE');
-    return applyIndent(result, context.indentLevel);
+    return result.map(line => indent(context.indentLevel || 0) + line).join('\n');
   }
 }

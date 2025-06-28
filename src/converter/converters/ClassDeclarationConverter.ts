@@ -1,17 +1,19 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
-import { applyIndent } from '@/utils/indent';
-import { RecursionGuard } from '@/converter/RecursionGuard';
+import { indent } from '../../utils/indent';
+import { RecursionGuard } from '../RecursionGuard';
 
 export class ClassDeclarationConverter implements IConverter {
-  public convert(node: ASTNode, context: ConversionContext): string[] {
+  public convert(node: ASTNode, context: ConversionContext): string {
     const result: string[] = [];
-    result.push(`CLASS ${node.name}`);
+    result.push(`CLASS ${node.name || ''}`);
 
-    const body = RecursionGuard.convert(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
-    result.push(...applyIndent(body, 1));
+    if (node.body) {
+      const body = RecursionGuard.convert(node.body, { ...context, indentLevel: (context.indentLevel || 0) + 1 });
+      result.push(body);
+    }
 
     result.push('ENDCLASS');
-    return applyIndent(result, context.indentLevel);
+    return result.map(line => indent(context.indentLevel || 0) + line).join('\n');
   }
 }

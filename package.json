@@ -4,7 +4,6 @@
   "type": "module",
   "description": "Java to IGCSE Pseudocode Converter",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

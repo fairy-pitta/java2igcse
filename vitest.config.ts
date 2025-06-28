@@ -17,7 +17,11 @@ export default defineConfig({
       ]
     },
     include: ['test/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-    exclude: ['node_modules', 'dist', '.idea', '.git', '.cache'],
-
+    exclude: ['node_modules', 'dist', '.idea', '.git', '.cache']
+  },
+  resolve: {
+    alias: {
+      'src': '/Users/shuna/java2ibscg/src'
+    }
   }
 });

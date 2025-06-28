@@ -1,10 +1,9 @@
-import { ASTNode, ConversionContext } from '../../types/ast.js';
-import { IConverter } from './IConverter.js';
-import { ConverterFactory } from './ConverterFactory.js';
-import { mapJavaTypeToIGCSE } from '../../utils/indent.js';
+import { ASTNode, ConversionContext } from '../../types/ast';
+import { IConverter } from './IConverter';
+import { ConverterFactory } from './ConverterFactory';
 
 export class VariableDeclarationConverter implements IConverter {
-    convert(node: ASTNode, context: ConversionContext): string | string[] {
+    convert(node: ASTNode, context: ConversionContext): string {
         const declarations: string[] = [];
         const assignments: string[] = [];
 
@@ -18,7 +17,7 @@ export class VariableDeclarationConverter implements IConverter {
             return `CONSTANT ${node.name} = ${value}`;
         }
 
-        const dataType = mapJavaTypeToIGCSE(node.dataType);
+        const dataType = this.mapJavaTypeToIGCSE(node.dataType || 'unknown');
         declarations.push(`DECLARE ${node.name} : ${dataType}`);
 
         if (node.initializer) {
@@ -28,17 +27,37 @@ export class VariableDeclarationConverter implements IConverter {
                     assignments.push(`INPUT ${node.name}`);
                 }
             } else {
-                const valueConverter = ConverterFactory.getConverter(node['initializer']['type']);
+                const valueConverter = ConverterFactory.getConverter(node.initializer.type);
                 const result = valueConverter ? valueConverter.convert(node['initializer'], context) : '';
                 const value = Array.isArray(result) ? result.join(' ') : result;
                 let valueStr = value;
                 if (dataType === 'BOOLEAN') {
                     valueStr = valueStr.toUpperCase();
                 }
-                assignments.push(`${node['name']} ← ${valueStr}`);
+                assignments.push(`${node.name} ← ${valueStr}`);
             }
         }
 
-        return [...declarations, ...assignments].join('\n');
+        const lines = [...declarations, ...assignments];
+        return lines.length > 0 ? lines.join('\n') : '';
+    }
+
+    private mapJavaTypeToIGCSE(javaType: string): string {
+        switch (javaType.toLowerCase()) {
+            case 'int':
+            case 'integer':
+                return 'INTEGER';
+            case 'string':
+                return 'STRING';
+            case 'boolean':
+                return 'BOOLEAN';
+            case 'double':
+            case 'float':
+                return 'REAL';
+            case 'void':
+                return 'VOID';
+            default:
+                return 'UNKNOWN';
+        }
     }
 }

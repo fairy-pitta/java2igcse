@@ -1,10 +1,10 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
-import { applyIndent } from '@/utils/indent';
+import { indent } from '../../utils/indent';
 import { ConverterFactory } from './ConverterFactory';
 
 export class ForStatementConverter implements IConverter {
-  public convert(node: ASTNode, context: ConversionContext): string[] {
+  public convert(node: ASTNode, context: ConversionContext): string {
     const result: string[] = [];
     
     if (node.init) {
@@ -40,12 +40,17 @@ export class ForStatementConverter implements IConverter {
       }
     }
     
-    const body = this.convertBlock(node.body!, { ...context, indentLevel: context.indentLevel + 1 });
-    result.push(...applyIndent(body, 1));
+    if (node.body) {
+      const bodyConverter = ConverterFactory.getConverter(node.body.type);
+      if (bodyConverter) {
+        const bodyResult = bodyConverter.convert(node.body, { ...context, indentLevel: (context.indentLevel || 0) + 1 });
+        result.push(bodyResult);
+      }
+    }
     
     result.push('ENDFOR');
     
-    return applyIndent(result, context.indentLevel);
+    return result.map(line => indent(context.indentLevel) + line).join('\n');
   }
 
   private convertExpression(node: ASTNode, context: ConversionContext): string {

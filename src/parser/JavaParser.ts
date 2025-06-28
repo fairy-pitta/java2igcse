@@ -1,5 +1,5 @@
 import { parse } from 'java-parser';
-import { ASTNode } from '../types/ast.js';
+import { ASTNode } from '../types/ast';
 
 export class JavaParser {
     public parse(javaCode: string): ASTNode {
@@ -14,7 +14,7 @@ export class JavaParser {
 
     private cstToAst(cstNode: any): ASTNode {
         if (!cstNode) {
-            return null;
+            return { type: 'EmptyNode' };
         }
 
         const astNode: ASTNode = {

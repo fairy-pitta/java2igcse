@@ -1,7 +1,7 @@
-import { ASTNode, ConversionContext } from '../../types/ast.js';
-import { IConverter } from './IConverter.js';
-import { applyIndent } from '../../utils/indent.js';
-import { ConverterFactory } from './ConverterFactory.js';
+import { ASTNode, ConversionContext } from '../../types/ast';
+import { IConverter } from './IConverter';
+import { indent } from '../../utils/indent';
+import { ConverterFactory } from './ConverterFactory';
 
 export class IfStatementConverter implements IConverter {
   public convert(node: ASTNode, context: ConversionContext): string[] {
@@ -35,6 +35,10 @@ export class IfStatementConverter implements IConverter {
 
   private convertExpression(node: ASTNode, context: ConversionContext): string {
     const converter = ConverterFactory.getConverter(node.type);
+    if (!converter) {
+      console.warn(`No converter found for type: ${node.type}`);
+      return '';
+    }
     const result = converter.convert(node, context);
     return Array.isArray(result) ? result.join(' ') : result;
   }

@@ -1,13 +1,16 @@
-import { ASTNode, ConversionContext } from '@/types/ast';
+import { ASTNode, ConversionContext } from '../../types/ast';
 import { IConverter } from './IConverter';
+import { ConverterFactory } from './ConverterFactory';
 
 export class ReturnStatementConverter implements IConverter {
-  public convert(node: ASTNode, context: ConversionContext): string[] {
+  public convert(node: ASTNode, context: ConversionContext): string {
     if (node.argument) {
-      // Assuming argument is an expression that can be converted
-      // You'll need to implement a way to convert expressions using the factory
-      return [`RETURN ${node.argument.value}`]; // Placeholder
+      const converter = ConverterFactory.getConverter(node.argument.type);
+      if (converter) {
+        const result = converter.convert(node.argument, context);
+        return `RETURN ${result}`;
+      }
     }
-    return ['RETURN'];
+    return 'RETURN';
   }
 }

@@ -1,4 +1,4 @@
-import { JavaParser } from 'src/parser/JavaParser';
+import { JavaParser } from '../src/parser/JavaParser';
 
 const javaCode = 'int x = 5;';
 const parser = new JavaParser();

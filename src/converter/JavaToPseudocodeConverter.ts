@@ -1,7 +1,12 @@
-import { JavaParser } from '../parser/JavaParser.js';
-import { ASTNode, ConversionContext } from '../types/ast.js';
-import { ConverterFactory } from './converters/ConverterFactory.js';
-import { PseudocodeFormatter } from '../formatter/PseudocodeFormatter.js';
+import { JavaParser } from '../parser/JavaParser';
+import { ASTNode, ConversionContext } from '../types/ast';
+import { ConverterFactory } from './converters/ConverterFactory';
+import { PseudocodeFormatter } from '../formatter/PseudocodeFormatter';
+
+interface ConversionHints {
+    integerDivision?: boolean;
+    [key: string]: any;
+}
 
 export class JavaToPseudocodeConverter {
     private parser: JavaParser;
@@ -12,7 +17,7 @@ export class JavaToPseudocodeConverter {
         this.formatter = new PseudocodeFormatter();
     }
 
-    convert(javaCode: string, hints: any = {}): string {
+    convert(javaCode: string, hints: ConversionHints = {}): string {
         const ast = this.parser.parse(javaCode);
         if (!ast) {
             return '';
@@ -29,7 +34,10 @@ export class JavaToPseudocodeConverter {
         }
 
         const pseudocode = converter.convert(ast, initialContext);
-        const formattedCode = Array.isArray(pseudocode) ? pseudocode.join('\n') : pseudocode;
-        return this.formatter.format(formattedCode);
+        return this.formatter.format(pseudocode);
+    }
+
+    convertWithHint(javaCode: string, hints: ConversionHints = {}): string {
+        return this.convert(javaCode, hints);
     }
 }
