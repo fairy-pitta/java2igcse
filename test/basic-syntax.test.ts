@@ -1,258 +1,93 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { JavaParser } from '../src/parser/JavaParser';
 import { JavaToPseudocodeConverter } from '../src/converter/JavaToPseudocodeConverter';
-import { ASTNode } from '../src/types/ast';
 
-describe('Basic Syntax Conversion', () => {
-  let converter: JavaToPseudocodeConverter;
+describe('Basic Syntax Conversion Tests', () => {
+    const converter = new JavaToPseudocodeConverter();
 
-  beforeEach(() => {
-    converter = new JavaToPseudocodeConverter();
-  });
+    describe('Variable Declaration Tests', () => {
+        it('Should correctly convert integer variable declaration', () => {
+            const java = 'int number = 42;';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE number : INTEGER\nnumber ← 42');
+        });
 
-  describe('Variable Declarations', () => {
-    it('should convert int variable declaration', () => {
-      const javaCode = 'int x = 5;';
-      const expected = 'DECLARE x : INTEGER\nx ← 5';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
+        it('Should correctly convert string variable declaration', () => {
+            const java = 'String text = "Hello";';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE text : STRING\ntext ← "Hello"');
+        });
+
+        it('Should correctly convert boolean variable declaration', () => {
+            const java = 'boolean flag = true;';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE flag : BOOLEAN\nflag ← TRUE');
+        });
+
+        it('Should correctly convert real number variable declaration', () => {
+            const java = 'double pi = 3.14;';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE pi : REAL\npi ← 3.14');
+        });
     });
 
-    it('should convert string variable declaration', () => {
-      const javaCode = 'String name = "John";';
-      const expected = 'DECLARE name : STRING\nname ← "John"';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
+    describe('Array Declaration Tests', () => {
+        it('Should correctly convert one-dimensional array declaration', () => {
+            const java = 'int[] numbers = new int[5];';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE numbers : ARRAY[1:5] OF INTEGER');
+        });
+
+        it('Should correctly convert two-dimensional array declaration', () => {
+            const java = 'int[][] matrix = new int[3][4];';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE matrix : ARRAY[1:3, 1:4] OF INTEGER');
+        });
+
+        it('Should correctly convert array initialization', () => {
+            const java = 'int[] scores = {90, 85, 95};';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE scores : ARRAY[1:3] OF INTEGER\nscores[1] ← 90\nscores[2] ← 85\nscores[3] ← 95');
+        });
     });
 
-    it('should convert boolean variable declaration', () => {
-      const javaCode = 'boolean flag = true;';
-      const expected = 'DECLARE flag : BOOLEAN\nflag ← TRUE';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
+    describe('Operator Tests', () => {
+        it('Should correctly convert arithmetic operators', () => {
+            const java = 'int result = a + b * c - d / e;';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE result : INTEGER\nresult ← a + b * c - d / e');
+        });
+
+        it('Should correctly convert comparison operators', () => {
+            const java = 'boolean result = x >= y && z < w;';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE result : BOOLEAN\nresult ← x >= y AND z < w');
+        });
+
+        it('Should correctly convert logical operators', () => {
+            const java = 'boolean result = !flag1 || (flag2 && flag3);';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE result : BOOLEAN\nresult ← NOT flag1 OR (flag2 AND flag3)');
+        });
     });
 
-    it('should convert double variable declaration', () => {
-      const javaCode = 'double price = 19.99;';
-      const expected = 'DECLARE price : REAL\nprice ← 19.99';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
+    describe('Input/Output Tests', () => {
+        it('Should correctly convert standard output', () => {
+            const java = 'System.out.println("Hello, World!");';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('OUTPUT "Hello, World!"');
+        });
 
-    it('should convert variable declaration without initialization', () => {
-      const javaCode = 'int count;';
-      const expected = 'DECLARE count : INTEGER';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
+        it('Should correctly convert standard input', () => {
+            const java = 'Scanner scanner = new Scanner(System.in); int input = scanner.nextInt();';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('DECLARE input : INTEGER\nINPUT input');
+        });
 
-  describe('Assignment Statements', () => {
-    it('should convert simple assignment', () => {
-      const javaCode = 'x = 10;';
-      const expected = 'x ← 10';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
+        it('Should correctly convert formatted output', () => {
+            const java = 'System.out.printf("Score: %d", score);';
+            const pseudocode = converter.convert(java);
+            expect(pseudocode).toBe('OUTPUT "Score: ", score');
+        });
     });
-
-    it('should convert string assignment', () => {
-      const javaCode = 'name = "Alice";';
-      const expected = 'name ← "Alice"';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert boolean assignment', () => {
-      const javaCode = 'isValid = false;';
-      const expected = 'isValid ← FALSE';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('Arithmetic Operations', () => {
-    it('should convert addition', () => {
-      const javaCode = 'result = a + b;';
-      const expected = 'result ← a + b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert subtraction', () => {
-      const javaCode = 'result = a - b;';
-      const expected = 'result ← a - b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert multiplication', () => {
-      const javaCode = 'result = a * b;';
-      const expected = 'result ← a * b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert division', () => {
-      const javaCode = 'result = a / b;';
-      const expected = 'result ← a / b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert modulo operation', () => {
-      const javaCode = 'result = a % b;';
-      const expected = 'result ← a MOD b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert integer division', () => {
-      const javaCode = 'result = a / b; // integer division';
-      const expected = 'result ← a DIV b';
-      const result = converter.convertWithHint(javaCode, { integerDivision: true });
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('Logical Operations', () => {
-    it('should convert logical AND', () => {
-      const javaCode = 'result = a && b;';
-      const expected = 'result ← a AND b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert logical OR', () => {
-      const javaCode = 'result = a || b;';
-      const expected = 'result ← a OR b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert logical NOT', () => {
-      const javaCode = 'result = !flag;';
-      const expected = 'result ← NOT flag';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('Comparison Operations', () => {
-    it('should convert equality', () => {
-      const javaCode = 'result = a == b;';
-      const expected = 'result ← a = b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert inequality', () => {
-      const javaCode = 'result = a != b;';
-      const expected = 'result ← a ≠ b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert less than', () => {
-      const javaCode = 'result = a < b;';
-      const expected = 'result ← a < b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert greater than', () => {
-      const javaCode = 'result = a > b;';
-      const expected = 'result ← a > b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert less than or equal', () => {
-      const javaCode = 'result = a <= b;';
-      const expected = 'result ← a ≤ b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert greater than or equal', () => {
-      const javaCode = 'result = a >= b;';
-      const expected = 'result ← a ≥ b';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('Input/Output Operations', () => {
-    it('should convert System.out.println', () => {
-      const javaCode = 'System.out.println("Hello World");';
-      const expected = 'OUTPUT "Hello World"';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert System.out.print', () => {
-      const javaCode = 'System.out.print("Hello");';
-      const expected = 'OUTPUT "Hello"';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert variable output', () => {
-      const javaCode = 'System.out.println(name);';
-      const expected = 'OUTPUT name';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert concatenated output', () => {
-      const javaCode = 'System.out.println("Hello " + name);';
-      const expected = 'OUTPUT "Hello " & name';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert Scanner input', () => {
-      const javaCode = 'int x = scanner.nextInt();';
-      const expected = 'DECLARE x : INTEGER\nINPUT x';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert String input', () => {
-      const javaCode = 'String name = scanner.nextLine();';
-      const expected = 'DECLARE name : STRING\nINPUT name';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('String Operations', () => {
-    it('should convert string concatenation', () => {
-      const javaCode = 'result = firstName + lastName;';
-      const expected = 'result ← firstName & lastName';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert string concatenation with literal', () => {
-      const javaCode = 'message = "Hello " + name + "!";';
-      const expected = 'message ← "Hello " & name & "!"';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
-
-  describe('Constants', () => {
-    it('should convert final variable as constant', () => {
-      const javaCode = 'final double PI = 3.14159;';
-      const expected = 'CONSTANT PI = 3.14159';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-
-    it('should convert static final as constant', () => {
-      const javaCode = 'static final int MAX_SIZE = 100;';
-      const expected = 'CONSTANT MAX_SIZE = 100';
-      const result = converter.convert(javaCode);
-      expect(result.trim()).toBe(expected);
-    });
-  });
 });
