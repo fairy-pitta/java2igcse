@@ -1,0 +1,56 @@
+{
+  "name": "java2igcse",
+  "version": "1.0.0",
+  "description": "Convert Java and TypeScript code to IGCSE pseudocode format",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.ts tests/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts tests/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts tests/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts tests/**/*.ts",
+    "clean": "rm -rf dist",
+    "dev": "ts-node src/index.ts",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "keywords": [
+    "java",
+    "typescript",
+    "igcse",
+    "pseudocode",
+    "converter",
+    "education",
+    "programming"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fairy-pitta/java2igcse.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fairy-pitta/java2igcse/issues"
+  },
+  "homepage": "https://github.com/fairy-pitta/java2igcse#readme",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.38.0",
+    "@typescript-eslint/parser": "^8.38.0",
+    "eslint": "^9.32.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.3",
+    "jest": "^30.0.5",
+    "prettier": "^3.6.2",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
