@@ -52,5 +52,8 @@
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "java-parser": "^3.0.1"
   }
 }
