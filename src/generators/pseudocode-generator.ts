@@ -17,7 +17,7 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
 
   constructor(options: ConversionOptions = {}) {
     this.options = {
-      indentSize: 3, // IGCSE standard: 3 spaces recommended
+      indentSize: 4, // IGCSE standard: 4 spaces for proper readability
       includeComments: true,
       strictMode: false,
       customMappings: {},
@@ -137,6 +137,10 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         return this.generateFunctionDeclaration(node);
       case 'class_converted':
         return this.generateClassDeclaration(node);
+      case 'parameter_declaration':
+        return ''; // Parameters are handled by the function declaration itself
+      case 'type_reference':
+        return ''; // Type references are handled by their parent nodes
       default:
         return this.generateGenericDeclaration(node);
     }
@@ -190,7 +194,7 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         declaration = `DECLARE ${variableName} : ${arrayType}`;
       } else {
         // Array without specified dimensions
-        declaration = `DECLARE ${variableName} : ARRAY[1:n] OF ${igcseType}`;
+        declaration = `DECLARE ${variableName} : ARRAY[1:SIZE] OF ${igcseType}`;
       }
     } else {
       // Simple variable declaration
@@ -251,7 +255,7 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     // Generate parameter list
     const paramList = parameters.map((param: any) => {
       if (param.isArray) {
-        return `${param.name} : ARRAY[1:n] OF ${param.type}`;
+        return `${param.name} : ARRAY[1:SIZE] OF ${param.type}`;
       }
       return `${param.name} : ${param.type}`;
     }).join(', ');
@@ -269,6 +273,11 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     // Generate function body
     this.incrementIndent();
     for (const child of node.children) {
+      // Skip function metadata nodes (identifiers, type references, parameters)
+      if (child.kind === 'identifier' || child.kind === 'type_reference' || child.kind === 'parameter_declaration') {
+        continue;
+      }
+      
       const childCode = this.generateNode(child);
       if (childCode.trim()) {
         parts.push(childCode);
@@ -295,6 +304,8 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         return this.generateReturnStatement(node);
       case 'block':
         return this.generateBlock(node);
+      case 'empty_statement':
+        return ''; // Empty statements produce no output
       default:
         return this.generateGenericStatement(node);
     }
@@ -328,13 +339,19 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         if (expr.startsWith('"') && expr.endsWith('"')) {
           return expr;
         }
-        // Heuristic: treat common variable names and simple identifiers as variables
+        // Heuristic: treat common variable names, simple identifiers, and array access as variables
         // In real usage, the IR should have metadata to distinguish literals from variables
-        const commonVariableNames = ['name', 'count', 'i', 'j', 'k', 'x', 'y', 'z', 'result', 'value', 'data', 'message', 'square', 'sum', 'total', 'temp', 'item', 'index', 'size', 'length', 'width', 'height', 'area', 'volume'];
+        const commonVariableNames = ['name', 'count', 'i', 'j', 'k', 'x', 'y', 'z', 'result', 'value', 'data', 'message', 'square', 'sum', 'total', 'temp', 'item', 'index', 'size', 'length', 'width', 'height', 'area', 'volume', 'maximum', 'minimum', 'max', 'min', 'avg', 'average', 'num', 'number', 'numbers', 'arr', 'array', 'list', 'args', 'arg', 'param', 'params'];
         const isSimpleIdentifier = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(expr);
+        const isArrayAccess = /^[a-zA-Z_][a-zA-Z0-9_]*\[[^\]]+\]$/.test(expr); // Matches arr[i], matrix[i][j], etc.
+        const isMethodCall = /^[a-zA-Z_][a-zA-Z0-9_]*\([^)]*\)$/.test(expr); // Matches function(), method(args)
         
         if (isSimpleIdentifier && (commonVariableNames.includes(expr.toLowerCase()) || expr.length <= 3)) {
           return expr; // Treat as variable
+        }
+        
+        if (isArrayAccess || isMethodCall) {
+          return expr; // Treat as variable/expression
         }
         
         // Otherwise, treat as string literal
@@ -406,6 +423,8 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         return this.generateWhileLoop(node);
       case 'for_loop':
         return this.generateForLoop(node);
+      case 'switch_statement':
+        return this.generateSwitchStatement(node);
       default:
         this.addWarning(
           `Unknown control structure: ${node.kind}`,
@@ -449,6 +468,11 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     } else {
       // Old format: direct children are the body statements
       for (const child of node.children) {
+        // Skip condition nodes as they are already handled in the IF statement
+        if (child.kind === 'condition') {
+          continue;
+        }
+        
         const childCode = this.generateNode(child);
         if (childCode.trim()) {
           parts.push(childCode);
@@ -565,9 +589,14 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     const parts: string[] = [];
     parts.push(this.addIndentation(`WHILE ${condition} DO`));
     
-    // Generate body
+    // Generate body - skip condition nodes, only process block/body nodes
     this.incrementIndent();
     for (const child of node.children) {
+      // Skip condition nodes as they are already handled in the WHILE statement
+      if (child.kind === 'condition') {
+        continue;
+      }
+      
       const childCode = this.generateNode(child);
       if (childCode.trim()) {
         parts.push(childCode);
@@ -604,9 +633,14 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     
     parts.push(this.addIndentation(forStatement));
     
-    // Generate body
+    // Generate body - skip initialization, condition, and increment nodes
     this.incrementIndent();
     for (const child of node.children) {
+      // Skip for loop control nodes as they are already handled in the FOR statement
+      if (child.kind === 'for_initialization' || child.kind === 'for_condition' || child.kind === 'for_increment') {
+        continue;
+      }
+      
       const childCode = this.generateNode(child);
       if (childCode.trim()) {
         parts.push(childCode);
@@ -615,6 +649,63 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     this.decrementIndent();
     
     parts.push(this.addIndentation(`NEXT ${variable}`));
+    
+    return parts.join('\n');
+  }
+
+  private generateSwitchStatement(node: IntermediateRepresentation): string {
+    const metadata = node.metadata;
+    const expression = metadata.expression;
+    const cases = metadata.cases || [];
+    const hasDefault = metadata.hasDefault;
+    
+    if (!expression) {
+      this.addWarning(
+        'Switch statement missing expression',
+        'MISSING_SWITCH_EXPRESSION'
+      );
+      return this.addIndentation('// Invalid switch statement');
+    }
+    
+    const parts: string[] = [];
+    parts.push(this.addIndentation(`CASE OF ${expression}`));
+    
+    this.incrementIndent();
+    
+    // Generate case statements from children
+    for (const child of node.children) {
+      if (child.kind === 'case_statement') {
+        const caseValue = child.metadata.value;
+        const caseStatements = child.children;
+        
+        parts.push(this.addIndentation(`${caseValue}:`));
+        
+        this.incrementIndent();
+        for (const stmt of caseStatements) {
+          const stmtCode = this.generateNode(stmt);
+          if (stmtCode.trim()) {
+            parts.push(stmtCode);
+          }
+        }
+        this.decrementIndent();
+      } else if (child.kind === 'default_case') {
+        const defaultStatements = child.children;
+        
+        parts.push(this.addIndentation('OTHERWISE:'));
+        
+        this.incrementIndent();
+        for (const stmt of defaultStatements) {
+          const stmtCode = this.generateNode(stmt);
+          if (stmtCode.trim()) {
+            parts.push(stmtCode);
+          }
+        }
+        this.decrementIndent();
+      }
+    }
+    
+    this.decrementIndent();
+    parts.push(this.addIndentation('ENDCASE'));
     
     return parts.join('\n');
   }

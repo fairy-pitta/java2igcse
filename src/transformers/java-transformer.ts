@@ -10,13 +10,22 @@ import {
 import { BaseASTTransformer } from './base-transformer';
 import { VariableDeclarationTransformer } from './variable-declaration-transformer';
 import { ErrorCodes } from '../errors';
+import { ArrayIndexingConverter, ArrayIndexContext } from '../utils/array-indexing-converter';
 
 export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
   private variableTransformer: VariableDeclarationTransformer;
+  private arrayIndexContext: ArrayIndexContext;
 
   constructor(options: ConversionOptions = {}) {
     super(options);
     this.variableTransformer = new VariableDeclarationTransformer(this);
+    this.arrayIndexContext = {
+      zeroBasedVariables: [],
+      oneBasedVariables: [],
+      convertedVariables: [],
+      arrayNames: [],
+      forLoopVariables: {}
+    };
   }
 
   transform(ast: JavaASTNode): TransformResult<IntermediateRepresentation> {
@@ -61,6 +70,12 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
         return this.transformWhileStatement(node);
       case 'for_statement':
         return this.transformForStatement(node);
+      case 'switch_statement':
+        return this.transformSwitchStatement(node);
+      case 'case_statement':
+        return this.transformCaseStatement(node);
+      case 'default_case':
+        return this.transformDefaultCase(node);
       case 'assignment_statement':
         return this.transformAssignmentStatement(node);
       case 'expression':
@@ -71,6 +86,10 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
         return this.transformBlock(node);
       case 'class_declaration':
         return this.transformClassDeclaration(node);
+      case 'parameter':
+        return this.transformParameter(node);
+      case 'return_statement':
+        return this.transformReturnStatement(node);
       default:
         this.addWarning(
           `Unsupported Java AST node type: ${node.type}`,
@@ -124,11 +143,23 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     const isFinal = node.metadata?.isFinal || false;
     const visibility = node.metadata?.visibility || 'public';
 
+    // Apply array indexing conversion to initialValue if present
+    let convertedInitialValue = initialValue;
+    if (initialValue) {
+      const conversionResult = ArrayIndexingConverter.convertArrayAccess(initialValue, this.arrayIndexContext);
+      convertedInitialValue = conversionResult.convertedExpression;
+      
+      // Add warnings for array indexing conversion
+      conversionResult.warnings.forEach(warning => {
+        this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
+    }
+
     // Use specialized variable declaration transformer
     const result = this.variableTransformer.transformJavaVariableDeclaration(
       javaType,
       variableName,
-      initialValue,
+      convertedInitialValue,
       typeNode.metadata,
       node.location
     );
@@ -175,6 +206,13 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
 
     if (valueNode) {
       children.push(this.transformNode(valueNode));
+    }
+
+    // Track array names for indexing conversion
+    if (result.ir.metadata.isArray) {
+      if (!this.arrayIndexContext.arrayNames?.includes(variableName)) {
+        this.arrayIndexContext.arrayNames?.push(variableName);
+      }
     }
 
     // Update the IR with transformed children and metadata
@@ -310,6 +348,7 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     const igcseReturnType = node.metadata?.igcseReturnType as IGCSEType;
     const isProcedure = node.metadata?.isProcedure as boolean;
     const isStatic = node.metadata?.isStatic as boolean;
+    const isConstructor = node.metadata?.isConstructor as boolean;
     const visibility = node.metadata?.visibility as string;
     const parameters = node.metadata?.parameters || [];
 
@@ -325,10 +364,22 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
       igcseReturnType,
       isProcedure,
       isStatic,
+      isConstructor,
       visibility,
       parameters,
       igcseDeclaration: this.generateMethodDeclaration(methodName, parameters, igcseReturnType, isProcedure)
     };
+
+    // Add constructor comment if needed
+    if (isConstructor) {
+      this.addWarning(
+        `Constructor '${methodName}' converted to procedure`,
+        'FEATURE_CONVERSION',
+        'info',
+        node.location?.line,
+        node.location?.column
+      );
+    }
 
     // Add static method comment if needed
     if (isStatic) {
@@ -390,6 +441,27 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
   }
 
   private transformExpressionStatement(node: JavaASTNode): IntermediateRepresentation {
+    // Check if this is an increment/decrement statement
+    if (node.metadata?.operator && (node.metadata.operator === '++' || node.metadata.operator === '--')) {
+      const variable = node.metadata.variable as string;
+      const operator = node.metadata.operator as string;
+      const isIncrement = operator === '++';
+      
+      return this.createIRNode(
+        'statement',
+        'assignment_statement',
+        [],
+        {
+          variable,
+          expression: isIncrement ? `${variable} + 1` : `${variable} - 1`,
+          originalExpression: `${variable}${operator}`,
+          isIncrement,
+          isDecrement: !isIncrement
+        },
+        node.location
+      );
+    }
+    
     // Expression statements are typically method calls or assignments wrapped in a statement
     if (node.children.length > 0) {
       const expression = this.transformNode(node.children[0]);
@@ -468,12 +540,21 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     const hasElse = node.metadata?.hasElse || false;
     const isElseIf = node.metadata?.isElseIf || false;
     
+    // Apply array indexing conversion to the condition
+    let conditionText = condition.metadata?.igcseCondition || condition.metadata?.value || '';
+    const conversionResult = ArrayIndexingConverter.convertArrayAccess(conditionText, this.arrayIndexContext);
+    
+    // Add warnings for array indexing conversion in conditions
+    conversionResult.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
     return this.createIRNode(
       'control_structure',
       'if_statement',
       children,
       {
-        condition: condition.metadata?.igcseCondition || condition.metadata?.value,
+        condition: conversionResult.convertedExpression,
         hasElse,
         isElseIf,
         thenBlock,
@@ -503,13 +584,20 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
   }
 
   private transformForStatement(node: JavaASTNode): IntermediateRepresentation {
-    const children = node.children.map(child => this.transformNode(child));
+    // Transform children but skip condition and increment nodes as they're handled via metadata
+    const children: IntermediateRepresentation[] = [];
+    for (let i = 0; i < node.children.length; i++) {
+      const child = node.children[i];
+      if (child.type === 'for_condition' || child.type === 'for_increment') {
+        // Skip these nodes - they're handled via metadata
+        continue;
+      }
+      children.push(this.transformNode(child));
+    }
     
     // Extract for loop components
     const initialization = children[0]; // initialization node
-    const condition = children[1]; // condition node
-    const increment = children[2]; // increment node
-    const body = children[3]; // body block
+    const body = children[1]; // body block (condition and increment are skipped)
     
     // Parse for loop metadata
     const variable = node.metadata?.variable || 'i';
@@ -517,8 +605,55 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     const endCondition = node.metadata?.endCondition || '';
     const incrementExpression = node.metadata?.incrementExpression || '';
     
-    // Convert for loop to IGCSE format
-    const forLoopData = this.convertForLoopToIGCSE(variable, startValue, endCondition, incrementExpression);
+    // Track zero-based variables for array indexing conversion
+    // Note: After conversion, the loop variable will be 1-based in IGCSE
+    if (startValue === '0') {
+      // Original Java loop starts from 0, but after conversion it will start from 1
+      // So we track it as originally zero-based but will become one-based
+      if (!this.arrayIndexContext.zeroBasedVariables?.includes(variable)) {
+        this.arrayIndexContext.zeroBasedVariables?.push(variable);
+      }
+    } else if (startValue === '1') {
+      if (!this.arrayIndexContext.oneBasedVariables?.includes(variable)) {
+        this.arrayIndexContext.oneBasedVariables?.push(variable);
+      }
+    }
+    
+    // Store for loop variable context
+    this.arrayIndexContext.forLoopVariables = this.arrayIndexContext.forLoopVariables || {};
+    this.arrayIndexContext.forLoopVariables[variable] = {
+      start: parseInt(startValue) || 0,
+      end: endCondition
+    };
+    
+    // Convert for loop bounds using array indexing converter
+    const boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
+      variable,
+      startValue,
+      endCondition,
+      this.arrayIndexContext.arrayNames
+    );
+    
+    // Add warnings for bounds conversion
+    boundsConversion.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
+    // If the start value was converted from 0 to 1, track this variable as converted
+    if (startValue === '0' && boundsConversion.startValue === '1') {
+      if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
+        this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
+        this.arrayIndexContext.convertedVariables.push(variable);
+      }
+    }
+    
+    // Convert for loop to IGCSE format with converted bounds
+    const forLoopData = this.convertForLoopToIGCSE(
+      variable, 
+      boundsConversion.startValue, 
+      boundsConversion.endValue, 
+      incrementExpression
+    );
     
     return this.createIRNode(
       'control_structure',
@@ -529,7 +664,9 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
         startValue: forLoopData.startValue,
         endValue: forLoopData.endValue,
         stepValue: forLoopData.stepValue,
-        body
+        body,
+        originalStartValue: startValue,
+        originalEndCondition: endCondition
       },
       node.location
     );
@@ -541,46 +678,10 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     endValue: string;
     stepValue: number;
   } {
-    // Parse start value
-    const start = parseInt(startValue) || 0;
+    // The startValue and endCondition have already been processed by ArrayIndexingConverter
+    // so we just need to determine the step value and format appropriately
     
-    // Parse end condition (e.g., "i < 10", "i <= 15", "i > 0")
-    let endValue = '';
     let stepValue = 1;
-    
-    if (endCondition.includes('<=')) {
-      const parts = endCondition.split('<=');
-      if (parts.length === 2) {
-        endValue = parts[1].trim();
-      }
-    } else if (endCondition.includes('<')) {
-      const parts = endCondition.split('<');
-      if (parts.length === 2) {
-        const endNum = parseInt(parts[1].trim());
-        if (!isNaN(endNum)) {
-          endValue = (endNum - 1).toString();
-        } else {
-          endValue = parts[1].trim() + '-1';
-        }
-      }
-    } else if (endCondition.includes('>=')) {
-      const parts = endCondition.split('>=');
-      if (parts.length === 2) {
-        endValue = parts[1].trim();
-        stepValue = -1; // Assume decrement
-      }
-    } else if (endCondition.includes('>')) {
-      const parts = endCondition.split('>');
-      if (parts.length === 2) {
-        const endNum = parseInt(parts[1].trim());
-        if (!isNaN(endNum)) {
-          endValue = (endNum + 1).toString();
-        } else {
-          endValue = parts[1].trim() + '+1';
-        }
-        stepValue = -1; // Assume decrement
-      }
-    }
     
     // Parse increment expression (e.g., "i++", "i--", "i += 2", "i = i + 3")
     if (incrementExpression.includes('++')) {
@@ -626,9 +727,66 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     return {
       variable,
       startValue,
-      endValue,
+      endValue: endCondition, // Use the converted end condition directly
       stepValue
     };
+  }
+
+  private transformSwitchStatement(node: JavaASTNode): IntermediateRepresentation {
+    const children = node.children.map(child => this.transformNode(child));
+    
+    // Extract switch components
+    const expression = node.metadata?.expression || children[0]?.metadata?.value || 'value';
+    const cases = node.metadata?.cases || [];
+    const defaultCase = node.metadata?.defaultCase;
+    
+    this.addWarning(
+      'Switch statement converted to CASE statement',
+      'FEATURE_CONVERSION',
+      'info',
+      node.location?.line,
+      node.location?.column
+    );
+    
+    return this.createIRNode(
+      'control_structure',
+      'switch_statement',
+      children,
+      {
+        expression,
+        cases,
+        defaultCase,
+        hasDefault: !!defaultCase
+      },
+      node.location
+    );
+  }
+
+  private transformCaseStatement(node: JavaASTNode): IntermediateRepresentation {
+    const children = node.children.map(child => this.transformNode(child));
+    const caseValue = node.metadata?.value || 'unknown';
+    
+    return this.createIRNode(
+      'control_structure',
+      'case_statement',
+      children,
+      {
+        value: caseValue
+      },
+      node.location
+    );
+  }
+
+  private transformDefaultCase(node: JavaASTNode): IntermediateRepresentation {
+    const children = node.children.map(child => this.transformNode(child));
+    
+    return this.createIRNode(
+      'control_structure',
+      'default_case',
+      children,
+      {},
+      node.location
+    );
   }
 
   private transformAssignmentStatement(node: JavaASTNode): IntermediateRepresentation {
@@ -637,13 +795,33 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     const variable = node.metadata?.variable || (children[0]?.metadata?.name);
     const expression = node.metadata?.expression || (children[1]?.metadata?.value);
     
+    // Convert array indexing from 0-based to 1-based
+    const conversionResult = ArrayIndexingConverter.convertArrayAssignment(
+      variable || '',
+      expression || '',
+      this.arrayIndexContext
+    );
+    
+    // Add warnings for array indexing conversion
+    conversionResult.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
+    // Extract converted variable and expression
+    const assignmentParts = conversionResult.convertedExpression.split(' ← ');
+    const convertedVariable = assignmentParts[0] || variable;
+    const convertedExpression = assignmentParts[1] || expression;
+    
     return this.createIRNode(
       'statement',
       'assignment_statement',
       children,
       {
-        variable,
-        expression
+        variable: convertedVariable,
+        expression: convertedExpression,
+        originalVariable: variable,
+        originalExpression: expression,
+        hasArrayAccess: conversionResult.hasArrayAccess
       },
       node.location
     );
@@ -652,13 +830,22 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
   private transformExpression(node: JavaASTNode): IntermediateRepresentation {
     const expression = node.value as string;
     
+    // Convert array indexing from 0-based to 1-based
+    const conversionResult = ArrayIndexingConverter.convertArrayAccess(expression, this.arrayIndexContext);
+    
+    // Add warnings for array indexing conversion
+    conversionResult.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
     return this.createIRNode(
       'expression',
       'expression',
       [],
       {
-        value: expression,
-        originalExpression: expression
+        value: conversionResult.convertedExpression,
+        originalExpression: expression,
+        hasArrayAccess: conversionResult.hasArrayAccess
       },
       node.location
     );
@@ -760,6 +947,11 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     if (interfaces.length > 0) {
       inheritanceComment += ` implements ${interfaces.join(', ')}`;
     }
+    
+    // Add "class" suffix only if no inheritance info
+    if (!superClass && interfaces.length === 0) {
+      inheritanceComment += ` class`;
+    }
 
     return this.createIRNode(
       'declaration',
@@ -785,7 +977,7 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     isProcedure: boolean = true
   ): string {
     const paramList = parameters.map(p => {
-      const paramType = p.isArray ? `ARRAY[1:n] OF ${p.type}` : p.type;
+      const paramType = p.isArray ? `ARRAY[1:SIZE] OF ${p.type}` : p.type;
       return `${p.name} : ${paramType}`;
     }).join(', ');
 
@@ -1019,6 +1211,40 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     );
   }
 
+  private transformParameter(node: JavaASTNode): IntermediateRepresentation {
+    const parameterName = node.metadata?.parameterName as string;
+    const parameterType = node.metadata?.parameterType as string;
+    const isArray = node.metadata?.isArray || false;
+    
+    return this.createIRNode(
+      'declaration',
+      'parameter_declaration',
+      [],
+      {
+        parameterName,
+        parameterType,
+        igcseType: this.convertJavaTypeToIGCSE(parameterType),
+        isArray
+      },
+      node.location
+    );
+  }
+
+  private transformReturnStatement(node: JavaASTNode): IntermediateRepresentation {
+    const hasExpression = node.metadata?.hasExpression || false;
+    const expression = node.metadata?.expression;
+    
+    return this.createIRNode(
+      'statement',
+      'return_statement',
+      [],
+      {
+        hasExpression,
+        expression
+      },
+      node.location
+    );
+  }
 }
 
 export default JavaASTTransformer;

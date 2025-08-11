@@ -9,6 +9,7 @@ import {
 } from '../index';
 import { BaseASTTransformer } from './base-transformer';
 import { ErrorCodes } from '../errors';
+import { ArrayIndexingConverter, ArrayIndexContext } from '../utils/array-indexing-converter';
 
 export interface VariableDeclarationResult {
   ir: IntermediateRepresentation;

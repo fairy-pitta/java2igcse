@@ -16,7 +16,7 @@ describe('Configuration Options Tests', () => {
 
       expect(result.success).toBe(true);
       expect(result.pseudocode).toContain('DECLARE x : INTEGER ← 5');
-      // Default indentation should be 4 spaces
+      // Default indentation should be 3 spaces (IGCSE standard)
       expect(result.pseudocode).toMatch(/^DECLARE/); // No indentation for top-level
     });
 
@@ -50,7 +50,7 @@ describe('Configuration Options Tests', () => {
       const outputLine = lines.find(line => line.includes('OUTPUT'));
       if (outputLine) {
         expect(outputLine.startsWith('  ')).toBe(true); // 2 spaces
-        expect(outputLine.startsWith('    ')).toBe(false); // Not 4 spaces
+        expect(outputLine.startsWith('   ')).toBe(false); // Not 3 spaces (default)
       }
     });
 

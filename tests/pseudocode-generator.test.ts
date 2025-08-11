@@ -96,7 +96,7 @@ describe('IGCSEPseudocodeGenerator', () => {
       };
 
       const result = generator.generate(ir);
-      expect(result).toBe('DECLARE items : ARRAY[1:n] OF STRING');
+      expect(result).toBe('DECLARE items : ARRAY[1:SIZE] OF STRING');
     });
 
     test('handles array initialization with warning', () => {
@@ -304,7 +304,7 @@ describe('IGCSEPseudocodeGenerator', () => {
 
       const result = generator.generate(ir);
       const expected = [
-        'PROCEDURE processArray(arr : ARRAY[1:n] OF INTEGER, size : INTEGER)',
+        'PROCEDURE processArray(arr : ARRAY[1:SIZE] OF INTEGER, size : INTEGER)',
         'ENDPROCEDURE'
       ].join('\n');
       

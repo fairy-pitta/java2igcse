@@ -10,13 +10,22 @@ import {
 import { BaseASTTransformer } from './base-transformer';
 import { VariableDeclarationTransformer } from './variable-declaration-transformer';
 import { ErrorCodes } from '../errors';
+import { ArrayIndexingConverter, ArrayIndexContext } from '../utils/array-indexing-converter';
 
 export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNode> {
   private variableTransformer: VariableDeclarationTransformer;
+  private arrayIndexContext: ArrayIndexContext;
 
   constructor(options: ConversionOptions = {}) {
     super(options);
     this.variableTransformer = new VariableDeclarationTransformer(this);
+    this.arrayIndexContext = {
+      zeroBasedVariables: [],
+      oneBasedVariables: [],
+      convertedVariables: [],
+      arrayNames: [],
+      forLoopVariables: {}
+    };
   }
 
   transform(ast: TypeScriptASTNode): TransformResult<IntermediateRepresentation> {
@@ -57,6 +66,8 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         return this.transformWhileStatement(node);
       case 'for_statement':
         return this.transformForStatement(node);
+      case 'switch_statement':
+        return this.transformSwitchStatement(node);
       case 'block':
         return this.transformBlock(node);
       case 'expression_statement':
@@ -81,6 +92,9 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         return this.transformObjectDestructuring(node);
       case 'array_destructuring':
         return this.transformArrayDestructuring(node);
+      case 'ts_endoffiletoken':
+        // Ignore end-of-file tokens as they don't represent actual code
+        return this.createIRNode('statement', 'empty_statement', [], {}, node.location);
       default:
         this.addWarning(
           `Unsupported TypeScript AST node type: ${node.type}`,
@@ -146,11 +160,23 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       return this.transformArrowFunction(arrowFunctionChild);
     }
 
+    // Apply array indexing conversion to initializer if present
+    let convertedInitializer = hasInitializer ? initializer : undefined;
+    if (hasInitializer && initializer) {
+      const conversionResult = ArrayIndexingConverter.convertArrayAccess(initializer, this.arrayIndexContext);
+      convertedInitializer = conversionResult.convertedExpression;
+      
+      // Add warnings for array indexing conversion
+      conversionResult.warnings.forEach(warning => {
+        this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
+    }
+
     // Use specialized variable declaration transformer
     const result = this.variableTransformer.transformTypeScriptVariableDeclaration(
       variableName,
       hasTypeAnnotation ? typeAnnotation : undefined,
-      hasInitializer ? initializer : undefined,
+      convertedInitializer,
       isOptional,
       node.location
     );
@@ -159,6 +185,13 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     result.warnings.forEach(warning => {
       this.addWarning(warning, 'FEATURE_CONVERSION', 'info', node.location?.line, node.location?.column);
     });
+
+    // Track array names for indexing conversion
+    if (result.ir.metadata.isArray) {
+      if (!this.arrayIndexContext.arrayNames?.includes(variableName)) {
+        this.arrayIndexContext.arrayNames?.push(variableName);
+      }
+    }
 
     // Transform child nodes and add them to the IR
     const children = node.children.map(child => this.transformNode(child));
@@ -441,8 +474,52 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       }
     }
     
-    // Convert for loop to IGCSE format
-    const forLoopData = this.convertForLoopToIGCSE(variable, startValue, endCondition, incrementExpression);
+    // Track zero-based variables for array indexing conversion
+    if (startValue === '0') {
+      if (!this.arrayIndexContext.zeroBasedVariables?.includes(variable)) {
+        this.arrayIndexContext.zeroBasedVariables?.push(variable);
+      }
+    } else if (startValue === '1') {
+      if (!this.arrayIndexContext.oneBasedVariables?.includes(variable)) {
+        this.arrayIndexContext.oneBasedVariables?.push(variable);
+      }
+    }
+    
+    // Store for loop variable context
+    this.arrayIndexContext.forLoopVariables = this.arrayIndexContext.forLoopVariables || {};
+    this.arrayIndexContext.forLoopVariables[variable] = {
+      start: parseInt(startValue) || 0,
+      end: endCondition
+    };
+    
+    // Convert for loop bounds using array indexing converter
+    const boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
+      variable,
+      startValue,
+      endCondition,
+      this.arrayIndexContext.arrayNames
+    );
+    
+    // Add warnings for bounds conversion
+    boundsConversion.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
+    // If the start value was converted from 0 to 1, track this variable as converted
+    if (startValue === '0' && boundsConversion.startValue === '1') {
+      if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
+        this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
+        this.arrayIndexContext.convertedVariables.push(variable);
+      }
+    }
+    
+    // Convert for loop to IGCSE format with converted bounds
+    const forLoopData = this.convertForLoopToIGCSE(
+      variable, 
+      boundsConversion.startValue, 
+      boundsConversion.endValue, 
+      incrementExpression
+    );
     
     return this.createIRNode(
       'control_structure',
@@ -453,7 +530,39 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         startValue: forLoopData.startValue,
         endValue: forLoopData.endValue,
         stepValue: forLoopData.stepValue,
-        body
+        body,
+        originalStartValue: startValue,
+        originalEndCondition: endCondition
+      },
+      node.location
+    );
+  }
+
+  private transformSwitchStatement(node: TypeScriptASTNode): IntermediateRepresentation {
+    const children = node.children.map(child => this.transformNode(child));
+    
+    // Extract switch components
+    const expression = node.metadata?.expression || children[0]?.metadata?.value || 'value';
+    const cases = node.metadata?.cases || [];
+    const defaultCase = node.metadata?.defaultCase;
+    
+    this.addWarning(
+      'Switch statement converted to CASE statement',
+      'FEATURE_CONVERSION',
+      'info',
+      node.location?.line,
+      node.location?.column
+    );
+    
+    return this.createIRNode(
+      'control_structure',
+      'switch_statement',
+      children,
+      {
+        expression,
+        cases,
+        defaultCase,
+        hasDefault: !!defaultCase
       },
       node.location
     );
@@ -594,6 +703,14 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       );
     }
     
+    // Convert array indexing in the expression
+    const conversionResult = ArrayIndexingConverter.convertArrayAccess(igcseExpression, this.arrayIndexContext);
+    
+    // Add warnings for array indexing conversion
+    conversionResult.warnings.forEach(warning => {
+      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+    });
+    
     return this.createIRNode(
       'expression',
       'binary_expression',
@@ -601,9 +718,10 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       {
         originalOperator: operator,
         igcseOperator,
-        igcseExpression,
+        igcseExpression: conversionResult.convertedExpression,
         leftOperand,
-        rightOperand
+        rightOperand,
+        hasArrayAccess: conversionResult.hasArrayAccess
       },
       node.location
     );
@@ -1298,7 +1416,7 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     isProcedure: boolean = true
   ): string {
     const paramList = parameters.map(p => {
-      const paramType = p.isArray ? `ARRAY[1:n] OF ${p.type}` : p.type;
+      const paramType = p.isArray ? `ARRAY[1:SIZE] OF ${p.type}` : p.type;
       return `${p.name} : ${paramType}`;
     }).join(', ');
 

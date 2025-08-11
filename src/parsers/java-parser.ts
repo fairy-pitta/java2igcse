@@ -72,6 +72,7 @@ export class JavaParser {
   private line: number = 1;
   private column: number = 1;
   private errors: ParseError[] = [];
+  private currentClassName: string | null = null;
 
   parse(sourceCode: string): JavaParseResult {
     this.source = sourceCode.trim();
@@ -324,6 +325,13 @@ export class JavaParser {
       return this.parseForStatement();
     }
 
+    // Check for switch statement
+    this.position = currentPos;
+    if (this.matchKeyword('switch')) {
+      this.position = currentPos; // Reset position before parsing
+      return this.parseSwitchStatement();
+    }
+
     // Check for class declarations
     this.position = currentPos;
     if (this.matchKeyword('class')) {
@@ -348,6 +356,38 @@ export class JavaParser {
              this.matchKeyword('protected') || this.matchKeyword('static') || 
              this.matchKeyword('final')) {
         this.skipWhitespace();
+      }
+      
+      // Check for class declaration first
+      if (this.matchKeyword('class')) {
+        this.position = saved.position;
+        this.line = saved.line;
+        this.column = saved.column;
+        return this.parseClassDeclaration();
+      }
+      
+      // Check for constructor first (identifier matching class name followed by '(')
+      if (this.currentClassName && this.isAlpha(this.peek())) {
+        const identifierStart = this.position;
+        let identifier = '';
+        
+        // Read the identifier
+        while (this.isAlphaNumeric(this.peek()) || this.peek() === '_') {
+          identifier += this.advance();
+        }
+        
+        this.skipWhitespace();
+        
+        // If identifier matches class name and is followed by '(', it's a constructor
+        if (identifier === this.currentClassName && this.peek() === '(') {
+          this.position = saved.position;
+          this.line = saved.line;
+          this.column = saved.column;
+          return this.parseMethodDeclaration();
+        }
+        
+        // Reset position to try other patterns
+        this.position = identifierStart;
       }
       
       // Skip type
@@ -445,6 +485,16 @@ export class JavaParser {
       // Skip identifier
       while (tempPos < this.source.length && (this.isAlphaNumeric(this.source[tempPos]) || this.source[tempPos] === '_')) {
         tempPos++;
+      }
+      
+      // Check for member access (this.field or object.field)
+      if (tempPos < this.source.length && this.source[tempPos] === '.') {
+        tempPos++; // Skip '.'
+        
+        // Skip member name
+        while (tempPos < this.source.length && (this.isAlphaNumeric(this.source[tempPos]) || this.source[tempPos] === '_')) {
+          tempPos++;
+        }
       }
       
       // Skip whitespace
@@ -1221,10 +1271,20 @@ export class JavaParser {
   private parseAssignmentStatement(): JavaASTNode {
     const startLocation = this.getCurrentLocation();
     
-    // Parse variable name
+    // Parse left-hand side (variable name or member access)
+    let variableName = '';
     const variable = this.parseIdentifier();
+    variableName = variable.value as string;
     
     this.skipWhitespace();
+    
+    // Check for member access (e.g., this.field)
+    if (this.peek() === '.') {
+      this.advance(); // consume '.'
+      const memberName = this.parseIdentifier();
+      variableName = `${variableName}.${memberName.value}`;
+      this.skipWhitespace();
+    }
     
     // Parse assignment operator
     if (this.peek() !== '=') {
@@ -1248,7 +1308,7 @@ export class JavaParser {
       children: [variable, expression],
       location: startLocation,
       metadata: {
-        variable: variable.value,
+        variable: variableName,
         expression: expression.value
       }
     };
@@ -1411,13 +1471,49 @@ export class JavaParser {
       }
     }
     
-    // Parse return type
-    const returnType = this.parseType();
-    this.skipWhitespace();
+    // Check if this might be a constructor (method name matches class name)
+    let isConstructor = false;
+    let returnType: JavaASTNode;
+    let methodName: JavaASTNode;
     
-    // Parse method name
-    const methodName = this.parseIdentifier();
-    this.skipWhitespace();
+    // Look ahead to see if the next identifier matches the class name
+    const saved = { position: this.position, line: this.line, column: this.column };
+    const potentialMethodName = this.parseIdentifier();
+    
+    if (this.currentClassName && potentialMethodName.value === this.currentClassName) {
+      // This might be a constructor - check if there's no return type before it
+      this.skipWhitespace();
+      if (this.peek() === '(') {
+        // This is a constructor - no return type
+        isConstructor = true;
+        methodName = potentialMethodName;
+        returnType = {
+          type: 'type',
+          value: 'void', // Constructors are treated as procedures (void)
+          children: [],
+          location: startLocation,
+          metadata: { isArray: false, arrayDimensions: [] }
+        };
+      } else {
+        // Not a constructor, reset and parse normally
+        this.position = saved.position;
+        this.line = saved.line;
+        this.column = saved.column;
+        returnType = this.parseType();
+        this.skipWhitespace();
+        methodName = this.parseIdentifier();
+        this.skipWhitespace();
+      }
+    } else {
+      // Not a constructor, reset and parse normally
+      this.position = saved.position;
+      this.line = saved.line;
+      this.column = saved.column;
+      returnType = this.parseType();
+      this.skipWhitespace();
+      methodName = this.parseIdentifier();
+      this.skipWhitespace();
+    }
     
     // Parse parameters
     if (this.peek() !== '(') {
@@ -1465,7 +1561,7 @@ export class JavaParser {
     
     // Determine if it's a procedure or function
     const returnTypeName = returnType.value as string;
-    const isProcedure = returnTypeName === 'void';
+    const isProcedure = returnTypeName === 'void' || isConstructor;
     const igcseReturnType = isProcedure ? undefined : this.convertJavaTypeToIGCSE(returnTypeName);
     
     return {
@@ -1480,6 +1576,7 @@ export class JavaParser {
         isStatic,
         visibility,
         modifiers,
+        isConstructor,
         parameters: parameters.map(p => ({
           name: p.metadata?.parameterName,
           type: this.convertJavaTypeToIGCSE(p.metadata?.parameterType),
@@ -1772,6 +1869,7 @@ export class JavaParser {
     
     // Parse class name
     const className = this.parseIdentifier();
+    this.currentClassName = className.value as string; // Track current class name for constructor detection
     this.skipWhitespace();
     
     // Parse inheritance (extends)
@@ -1821,6 +1919,139 @@ export class JavaParser {
         heritage,
         visibility,
         modifiers
+      }
+    };
+  }
+
+  private parseSwitchStatement(): JavaASTNode {
+    const startLocation = this.getCurrentLocation();
+    
+    // Parse 'switch' keyword
+    if (!this.matchKeyword('switch')) {
+      this.addError('Expected "switch"');
+      return { type: 'switch_statement', children: [], location: startLocation };
+    }
+    
+    this.skipWhitespace();
+    
+    // Parse '('
+    if (this.peek() !== '(') {
+      this.addError('Expected "(" after switch');
+      return { type: 'switch_statement', children: [], location: startLocation };
+    }
+    this.advance();
+    this.skipWhitespace();
+    
+    // Parse expression
+    const expression = this.parseExpression();
+    this.skipWhitespace();
+    
+    // Parse ')'
+    if (this.peek() !== ')') {
+      this.addError('Expected ")" after switch expression');
+      return { type: 'switch_statement', children: [], location: startLocation };
+    }
+    this.advance();
+    this.skipWhitespace();
+    
+    // Parse '{'
+    if (this.peek() !== '{') {
+      this.addError('Expected "{" after switch condition');
+      return { type: 'switch_statement', children: [], location: startLocation };
+    }
+    this.advance();
+    this.skipWhitespace();
+    
+    // Parse case statements
+    const cases: JavaASTNode[] = [];
+    let defaultCase: JavaASTNode | null = null;
+    
+    while (!this.isAtEnd() && this.peek() !== '}') {
+      this.skipWhitespace();
+      
+      if (this.matchKeyword('case')) {
+        this.skipWhitespace();
+        const caseValue = this.parseExpression();
+        this.skipWhitespace();
+        
+        if (this.peek() !== ':') {
+          this.addError('Expected ":" after case value');
+          break;
+        }
+        this.advance();
+        this.skipWhitespace();
+        
+        // Parse case body
+        const caseBody: JavaASTNode[] = [];
+        while (!this.isAtEnd() && this.peek() !== '}' && 
+               !this.matchKeyword('case') && !this.matchKeyword('default')) {
+          const stmt = this.parseStatement();
+          if (stmt) {
+            caseBody.push(stmt);
+          }
+          this.skipWhitespace();
+        }
+        
+        cases.push({
+          type: 'case_statement',
+          children: caseBody,
+          location: this.getCurrentLocation(),
+          metadata: {
+            value: caseValue.value
+          }
+        });
+      } else if (this.matchKeyword('default')) {
+        this.skipWhitespace();
+        
+        if (this.peek() !== ':') {
+          this.addError('Expected ":" after default');
+          break;
+        }
+        this.advance();
+        this.skipWhitespace();
+        
+        // Parse default body
+        const defaultBody: JavaASTNode[] = [];
+        while (!this.isAtEnd() && this.peek() !== '}' && 
+               !this.matchKeyword('case') && !this.matchKeyword('default')) {
+          const stmt = this.parseStatement();
+          if (stmt) {
+            defaultBody.push(stmt);
+          }
+          this.skipWhitespace();
+        }
+        
+        defaultCase = {
+          type: 'default_case',
+          children: defaultBody,
+          location: this.getCurrentLocation()
+        };
+      } else {
+        // Skip unknown content
+        this.advance();
+      }
+    }
+    
+    // Parse '}'
+    if (this.peek() !== '}') {
+      this.addError('Expected "}" to close switch statement');
+    } else {
+      this.advance();
+    }
+    
+    const children = [...cases];
+    if (defaultCase) {
+      children.push(defaultCase);
+    }
+    
+    return {
+      type: 'switch_statement',
+      children,
+      location: startLocation,
+      metadata: {
+        expression: expression.value,
+        cases: cases.map(c => c.metadata?.value),
+        defaultCase: defaultCase ? true : false
       }
     };
   }
