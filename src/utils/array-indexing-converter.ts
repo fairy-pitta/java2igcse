@@ -301,61 +301,30 @@ export class ArrayIndexingConverter {
   ): {
     startValue: string;
     endValue: string;
+    stepValue?: string;
+    isDecrement: boolean;
     warnings: string[];
   } {
     const warnings: string[] = [];
-    let convertedStart = startValue;
-    let convertedEnd = endCondition;
-
-    // Convert numeric start values for 1-based indexing when the end condition references array.length
-    // This indicates the loop is iterating over an array
-    const isArrayLoop = endCondition.includes('.length') || endCondition.includes('LENGTH(');
     
-    if (isArrayLoop) {
-      const numericStart = parseInt(startValue);
-      if (!isNaN(numericStart)) {
-        const convertedNumericStart = numericStart + 1;
-        convertedStart = convertedNumericStart.toString();
-        warnings.push(`For loop start value converted from ${startValue} to ${convertedStart} for 1-based array indexing`);
-      }
-    }
-
-    // Convert end conditions that reference array.length
-    if (endCondition.includes('.length')) {
-      const lengthPattern = /(\w+)\.length/g;
-      convertedEnd = endCondition.replace(lengthPattern, (match, arrayName) => {
-        warnings.push(`Array length '${match}' converted to LENGTH(${arrayName})`);
-        return `LENGTH(${arrayName})`;
-      });
-    }
-
-    // Handle "< value" patterns - convert to proper end value for IGCSE
-    if (convertedEnd.includes('<') && !convertedEnd.includes('<=')) {
-      // Handle "< LENGTH(array)" patterns
-      const lessThanLengthPattern = /(\w+)\s*<\s*LENGTH\((\w+)\)/;
-      const lengthMatch = convertedEnd.match(lessThanLengthPattern);
-      if (lengthMatch) {
-        const loopVar = lengthMatch[1];
-        const arrayName = lengthMatch[2];
-        convertedEnd = `LENGTH(${arrayName})`;
-        warnings.push(`Loop condition '${endCondition}' converted to 'TO LENGTH(${arrayName})' for 1-based indexing`);
-      } else {
-        // Handle "< number" patterns
-        const lessThanNumberPattern = /(\w+)\s*<\s*(\d+)/;
-        const numberMatch = convertedEnd.match(lessThanNumberPattern);
-        if (numberMatch) {
-          const loopVar = numberMatch[1];
-          const endNumber = parseInt(numberMatch[2]);
-          // For "i < 5", the end value should be 4 (since we're going TO 4, not WHILE < 5)
-          convertedEnd = (endNumber - 1).toString();
-          warnings.push(`Loop condition '${endCondition}' converted to 'TO ${convertedEnd}' for IGCSE format`);
-        }
-      }
+    // Import ForLoopParser dynamically to avoid circular imports
+    const { ForLoopParser } = require('./for-loop-parser');
+    
+    // Use the specialized for-loop parser
+    const parseResult = ForLoopParser.parseEndCondition(endCondition, variable);
+    warnings.push(...parseResult.warnings);
+    
+    // Convert start value for 1-based indexing if needed
+    let convertedStart = startValue;
+    if (startValue === "0" && !parseResult.isDecrement) {
+      convertedStart = "1";
+      warnings.push(`Start value converted from 0 to 1 for 1-based indexing`);
     }
 
     return {
       startValue: convertedStart,
-      endValue: convertedEnd,
+      endValue: parseResult.endValue,
+      isDecrement: parseResult.isDecrement,
       warnings
     };
   }

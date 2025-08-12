@@ -128,7 +128,10 @@ export class VariableDeclarationTransformer {
     
     if (typeAnnotation) {
       igcseType = this.convertTypeScriptTypeToIGCSE(typeAnnotation);
-      isArray = typeAnnotation.includes('[]') || typeAnnotation.includes('Array<');
+      
+      // Check if the converted type is already an array type
+      const isConvertedArray = igcseType.includes('ARRAY[') && igcseType.includes('] OF ');
+      isArray = !isConvertedArray && (typeAnnotation.includes('[]') || typeAnnotation.includes('Array<'));
       
       // Add type conversion warnings
       if (typeAnnotation.includes('|')) {
@@ -237,11 +240,32 @@ export class VariableDeclarationTransformer {
   public convertTypeScriptTypeToIGCSE(tsType: string): IGCSEType {
     if (!tsType) return 'STRING';
 
-    // Remove optional markers and array brackets for base type conversion
-    let baseType = tsType.replace(/\?/g, '').replace(/\[\]/g, '').trim();
+    // Check if this is an array type first
+    const isArray = tsType.includes('[]') || tsType.includes('Array<');
+    
+    // Remove optional markers for base type conversion
+    let baseType = tsType.replace(/\?/g, '').trim();
     
     // Handle Array<T> generic syntax
-    baseType = baseType.replace(/Array<(.+)>/g, '$1');
+    if (baseType.includes('Array<')) {
+      const arrayMatch = baseType.match(/Array<(.+)>$/);
+      if (arrayMatch) {
+        baseType = arrayMatch[1];
+      }
+    } else if (baseType.includes('[]')) {
+      // Handle T[] syntax
+      baseType = baseType.replace(/\[\]/g, '');
+    }
+    
+    // Handle Promise types specifically
+    if (baseType.startsWith('Promise<')) {
+      const promiseMatch = baseType.match(/^Promise<(.+)>$/);
+      if (promiseMatch) {
+        baseType = promiseMatch[1];
+        // Add a note that this was a Promise type
+        // This will be handled by the calling code
+      }
+    }
     
     // Handle other generic types by extracting the inner type
     const genericMatch = baseType.match(/^[A-Za-z]+<(.+)>$/);
@@ -274,25 +298,53 @@ export class VariableDeclarationTransformer {
       baseType = returnType;
     }
 
-    switch (baseType.toLowerCase()) {
-      case 'number':
-        return 'REAL';
-      case 'string':
-        return 'STRING';
-      case 'boolean':
-        return 'BOOLEAN';
-      case 'char':
-        return 'CHAR';
-      case 'int':
-      case 'integer':
-        return 'INTEGER';
-      case 'any':
-      case 'unknown':
-      case 'void':
-        return 'STRING'; // Default to STRING for unknown types
-      default:
-        return 'STRING';
+    // Convert the base type first
+    let igcseBaseType: IGCSEType;
+    
+    // Check if this is a generic type parameter (single uppercase letter or PascalCase identifier)
+    if (/^[A-Z][a-zA-Z]*$/.test(baseType) && baseType.length <= 10) {
+      // This looks like a generic type parameter, preserve it
+      igcseBaseType = baseType as IGCSEType;
+    } else {
+      switch (baseType.toLowerCase()) {
+        case 'number':
+          igcseBaseType = 'REAL';
+          break;
+        case 'string':
+          igcseBaseType = 'STRING';
+          break;
+        case 'boolean':
+          igcseBaseType = 'BOOLEAN';
+          break;
+        case 'char':
+          igcseBaseType = 'CHAR';
+          break;
+        case 'int':
+        case 'integer':
+          igcseBaseType = 'INTEGER';
+          break;
+        case 'any':
+        case 'unknown':
+        case 'void':
+          igcseBaseType = 'STRING'; // Default to STRING for unknown types
+          break;
+        default:
+          // If it's not a recognized type and looks like a generic parameter, preserve it
+          if (/^[A-Z]$/.test(baseType)) {
+            igcseBaseType = baseType as IGCSEType;
+          } else {
+            igcseBaseType = 'STRING';
+          }
+          break;
+      }
     }
+    
+    // If it was an array type, wrap it in IGCSE array syntax
+    if (isArray) {
+      return `ARRAY[1:SIZE] OF ${igcseBaseType}` as IGCSEType;
+    }
+    
+    return igcseBaseType;
   }
 
   private inferTypeFromInitializer(initializer: string): IGCSEType {

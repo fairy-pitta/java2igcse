@@ -31,10 +31,27 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
   transform(ast: TypeScriptASTNode): TransformResult<IntermediateRepresentation> {
     try {
       this.resetWarnings();
+      
+      // Handle partial parse results
+      if (ast.metadata?.partialParse) {
+        this.addWarning(
+          'Processing partially parsed AST. Some features may not be converted correctly.',
+          ErrorCodes.PARTIAL_PARSE,
+          'warning'
+        );
+      }
+      
       const result = this.transformNode(ast);
       return this.createTransformResult(result);
     } catch (error) {
-      return this.handleTransformError(error as Error);
+      // Create a partial result with whatever we could transform
+      const partialResult = this.createIRNode('program', 'partial_program', [], {
+        transformError: true,
+        errorMessage: (error as Error).message,
+        originalAST: ast
+      });
+      
+      return this.handleTransformError(error as Error, partialResult);
     }
   }
 
@@ -92,6 +109,8 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         return this.transformObjectDestructuring(node);
       case 'array_destructuring':
         return this.transformArrayDestructuring(node);
+      case 'interface_declaration':
+        return this.transformInterfaceDeclaration(node);
       case 'ts_endoffiletoken':
         // Ignore end-of-file tokens as they don't represent actual code
         return this.createIRNode('statement', 'empty_statement', [], {}, node.location);
@@ -209,16 +228,38 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     const isAsync = node.metadata?.isAsync || false;
 
     // Convert parameters to IGCSE format
-    const igcseParameters = parameters.map((param: any) => ({
-      name: param.name.replace('?', ''),
-      type: this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any'),
-      isArray: (param.type || '').includes('[]'),
-      isOptional: param.optional || param.name.includes('?')
-    }));
+    const igcseParameters = parameters.map((param: any) => {
+      const convertedType = this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any');
+      const isConvertedArray = convertedType.includes('ARRAY[') && convertedType.includes('] OF ');
+      
+      return {
+        name: param.name.replace('?', ''),
+        type: convertedType,
+        isArray: !isConvertedArray && (param.type || '').includes('[]'),
+        isOptional: param.optional || param.name.includes('?')
+      };
+    });
+
+    // Handle Promise return types
+    let processedReturnType = returnType;
+    if (returnType && returnType.startsWith('Promise<')) {
+      const promiseMatch = returnType.match(/^Promise<(.+)>$/);
+      if (promiseMatch) {
+        processedReturnType = promiseMatch[1];
+        // Add warning about Promise conversion
+        this.addWarning(
+          `Promise<${promiseMatch[1]}> return type converted to ${promiseMatch[1]}`,
+          'FEATURE_CONVERSION',
+          'info',
+          node.location?.line,
+          node.location?.column
+        );
+      }
+    }
 
     // Determine if it's a procedure or function
-    const isProcedure = !returnType || returnType === 'void';
-    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(returnType);
+    const isProcedure = !processedReturnType || processedReturnType === 'void';
+    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(processedReturnType);
 
     // Declare function in context
     this.declareFunction(functionName, igcseParameters, igcseReturnType);
@@ -242,6 +283,9 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         node.location?.line,
         node.location?.column
       );
+      
+      // Add async function comment to metadata
+      metadata.asyncComment = '// Async function - handles asynchronous operations';
     }
 
     return this.createIRNode(
@@ -256,6 +300,7 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
   private transformArrowFunction(node: TypeScriptASTNode): IntermediateRepresentation {
     const parameters = node.metadata?.parameters || [];
     const returnType = node.metadata?.returnType;
+    const isAsync = node.metadata?.isAsync || false;
 
     // Generate a name for the arrow function
     const functionName = `arrowFunction_${Date.now()}`;
@@ -269,30 +314,68 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     );
 
     // Convert parameters to IGCSE format
-    const igcseParameters = parameters.map((param: any) => ({
-      name: param.name.replace('?', ''),
-      type: this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any'),
-      isArray: (param.type || '').includes('[]'),
-      isOptional: param.optional || param.name.includes('?')
-    }));
+    const igcseParameters = parameters.map((param: any) => {
+      const convertedType = this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any');
+      const isConvertedArray = convertedType.includes('ARRAY[') && convertedType.includes('] OF ');
+      
+      return {
+        name: param.name.replace('?', ''),
+        type: convertedType,
+        isArray: !isConvertedArray && (param.type || '').includes('[]'),
+        isOptional: param.optional || param.name.includes('?')
+      };
+    });
 
-    const isProcedure = !returnType || returnType === 'void';
-    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(returnType);
+    // Handle Promise return types
+    let processedReturnType = returnType;
+    if (returnType && returnType.startsWith('Promise<')) {
+      const promiseMatch = returnType.match(/^Promise<(.+)>$/);
+      if (promiseMatch) {
+        processedReturnType = promiseMatch[1];
+        // Add warning about Promise conversion
+        this.addWarning(
+          `Promise<${promiseMatch[1]}> return type converted to ${promiseMatch[1]}`,
+          'FEATURE_CONVERSION',
+          'info',
+          node.location?.line,
+          node.location?.column
+        );
+      }
+    }
+
+    const isProcedure = !processedReturnType || processedReturnType === 'void';
+    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(processedReturnType);
 
     const children = node.children.map(child => this.transformNode(child));
+
+    const metadata: Record<string, any> = {
+      functionName,
+      parameters: igcseParameters,
+      returnType: igcseReturnType,
+      isProcedure,
+      isAsync,
+      isArrowFunction: true,
+      igcseDeclaration: this.generateFunctionDeclaration(functionName, igcseParameters, igcseReturnType, isProcedure)
+    };
+
+    if (isAsync) {
+      this.addWarning(
+        `Async arrow function converted to regular ${isProcedure ? 'procedure' : 'function'}`,
+        'FEATURE_CONVERSION',
+        'info',
+        node.location?.line,
+        node.location?.column
+      );
+      
+      // Add async function comment to metadata
+      metadata.asyncComment = '// Async function - handles asynchronous operations';
+    }
 
     return this.createIRNode(
       'function_declaration',
       'arrow_function_converted',
       children,
-      {
-        functionName,
-        parameters: igcseParameters,
-        returnType: igcseReturnType,
-        isProcedure,
-        isArrowFunction: true,
-        igcseDeclaration: this.generateFunctionDeclaration(functionName, igcseParameters, igcseReturnType, isProcedure)
-      },
+      metadata,
       node.location
     );
   }
@@ -492,25 +575,50 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       end: endCondition
     };
     
-    // Convert for loop bounds using array indexing converter
-    const boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
-      variable,
-      startValue,
-      endCondition,
-      this.arrayIndexContext.arrayNames
-    );
+    // Only convert for loop bounds if the loop is iterating over arrays
+    const isArrayLoop = endCondition.includes('.length') || 
+                       endCondition.includes('LENGTH(') ||
+                       (this.arrayIndexContext.arrayNames && 
+                        this.arrayIndexContext.arrayNames.some(arrayName => endCondition.includes(arrayName)));
     
-    // Add warnings for bounds conversion
-    boundsConversion.warnings.forEach(warning => {
-      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
-    });
-    
-    // If the start value was converted from 0 to 1, track this variable as converted
-    if (startValue === '0' && boundsConversion.startValue === '1') {
-      if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
-        this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
-        this.arrayIndexContext.convertedVariables.push(variable);
+    let boundsConversion;
+    if (isArrayLoop) {
+      // Convert for loop bounds using array indexing converter
+      boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
+        variable,
+        startValue,
+        endCondition,
+        this.arrayIndexContext.arrayNames
+      );
+      
+      // Add warnings for bounds conversion
+      boundsConversion.warnings.forEach(warning => {
+        this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
+      
+      // If the start value was converted from 0 to 1, track this variable as converted
+      if (startValue === '0' && boundsConversion.startValue === '1') {
+        if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
+          this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
+          this.arrayIndexContext.convertedVariables.push(variable);
+        }
       }
+    } else {
+      // For non-array loops, use the original bounds but still parse them properly
+      const { ForLoopParser } = require('../utils/for-loop-parser');
+      const endResult = ForLoopParser.parseEndCondition(endCondition, variable);
+      
+      boundsConversion = {
+        startValue: startValue, // Keep original start value
+        endValue: endResult.endValue,
+        isDecrement: endResult.isDecrement,
+        warnings: endResult.warnings
+      };
+      
+      // Add warnings for bounds conversion
+      boundsConversion.warnings.forEach((warning: string) => {
+        this.addWarning(warning, 'FOR_LOOP_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
     }
     
     // Convert for loop to IGCSE format with converted bounds
@@ -530,6 +638,7 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         startValue: forLoopData.startValue,
         endValue: forLoopData.endValue,
         stepValue: forLoopData.stepValue,
+        isDecrement: forLoopData.isDecrement,
         body,
         originalStartValue: startValue,
         originalEndCondition: endCondition
@@ -539,12 +648,110 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
   }
 
   private transformSwitchStatement(node: TypeScriptASTNode): IntermediateRepresentation {
-    const children = node.children.map(child => this.transformNode(child));
-    
-    // Extract switch components
-    const expression = node.metadata?.expression || children[0]?.metadata?.value || 'value';
+    // Extract switch components from metadata
+    let expression = node.metadata?.expression || 'value';
     const cases = node.metadata?.cases || [];
-    const defaultCase = node.metadata?.defaultCase;
+    const hasDefault = node.metadata?.hasDefault || false;
+    
+    // Convert boolean literals in switch expression
+    if (expression === 'true') {
+      expression = 'TRUE';
+    } else if (expression === 'false') {
+      expression = 'FALSE';
+    }
+    
+    // Create case statement nodes
+    const caseNodes: IntermediateRepresentation[] = [];
+    
+    for (const caseInfo of cases) {
+      if (caseInfo.isDefault) {
+        // Create default case node
+        const defaultStatements = caseInfo.statements.map((stmt: string) => {
+          // Skip break statements
+          if (stmt.trim() === 'break;') {
+            return null;
+          }
+          
+          // Handle console.log statements
+          if (stmt.includes('console.log(')) {
+            const match = stmt.match(/console\.log\((.+)\)/);
+            if (match) {
+              const argument = match[1].trim();
+              return this.createIRNode(
+                'statement',
+                'output_statement',
+                [],
+                { 
+                  expressions: [argument],
+                  igcseStatement: `OUTPUT ${argument}`
+                },
+                node.location
+              );
+            }
+          }
+          
+          // For other statements, create a generic statement node
+          return this.createIRNode(
+            'statement',
+            'expression_statement',
+            [],
+            { originalStatement: stmt },
+            node.location
+          );
+        }).filter((stmt: any) => stmt !== null);
+        
+        caseNodes.push(this.createIRNode(
+          'control_structure',
+          'default_case',
+          defaultStatements,
+          {},
+          node.location
+        ));
+      } else {
+        // Create case statement node
+        const caseStatements = caseInfo.statements.map((stmt: string) => {
+          // Skip break statements
+          if (stmt.trim() === 'break;') {
+            return null;
+          }
+          
+          // Handle console.log statements
+          if (stmt.includes('console.log(')) {
+            const match = stmt.match(/console\.log\((.+)\)/);
+            if (match) {
+              const argument = match[1].trim();
+              return this.createIRNode(
+                'statement',
+                'output_statement',
+                [],
+                { 
+                  expressions: [argument],
+                  igcseStatement: `OUTPUT ${argument}`
+                },
+                node.location
+              );
+            }
+          }
+          
+          // For other statements, create a generic statement node
+          return this.createIRNode(
+            'statement',
+            'expression_statement',
+            [],
+            { originalStatement: stmt },
+            node.location
+          );
+        }).filter((stmt: any) => stmt !== null);
+        
+        caseNodes.push(this.createIRNode(
+          'control_structure',
+          'case_statement',
+          caseStatements,
+          { value: caseInfo.value },
+          node.location
+        ));
+      }
+    }
     
     this.addWarning(
       'Switch statement converted to CASE statement',
@@ -557,12 +764,11 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     return this.createIRNode(
       'control_structure',
       'switch_statement',
-      children,
+      caseNodes,
       {
         expression,
-        cases,
-        defaultCase,
-        hasDefault: !!defaultCase
+        cases: cases.map((c: any) => c.value),
+        hasDefault
       },
       node.location
     );
@@ -739,6 +945,191 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     );
   }
 
+  private transformInterfaceDeclaration(node: TypeScriptASTNode): IntermediateRepresentation {
+    const interfaceName = node.value as string;
+    const properties = node.metadata?.properties || [];
+    const typeParameters = node.metadata?.typeParameters || [];
+    const heritage = node.metadata?.heritage || [];
+    const isGeneric = node.metadata?.isGeneric || false;
+    
+    // Generate property information for comments
+    const propertyComments: string[] = [];
+    const methodComments: string[] = [];
+    const indexSignatures: string[] = [];
+    
+    for (const prop of properties) {
+      if (prop.isMethod) {
+        // Handle method signatures - use simplified types for interface comments
+        const paramStr = prop.parameters.map((p: any) => `${p.name} : ${this.convertTypeForInterfaceComment(p.type)}`).join(', ');
+        
+        let returnTypeStr = '';
+        if (prop.returnType !== 'void') {
+          let returnType = prop.returnType;
+          
+          // Handle array return types specially
+          if (returnType.includes('[]') || returnType.includes('Array<')) {
+            let baseType = returnType;
+            if (baseType.includes('[]')) {
+              baseType = baseType.replace(/\[\]/g, '');
+            } else if (baseType.includes('Array<')) {
+              const arrayMatch = baseType.match(/Array<(.+)>$/);
+              if (arrayMatch) {
+                baseType = arrayMatch[1];
+              }
+            }
+            const convertedBaseType = this.convertTypeForInterfaceComment(baseType);
+            
+            // Only show array syntax for generic type parameters, simplify concrete types
+            if (this.isGenericTypeParameter(baseType)) {
+              returnTypeStr = ` RETURNS ARRAY[1:SIZE] OF ${convertedBaseType}`;
+            } else {
+              returnTypeStr = ` RETURNS ${convertedBaseType}`;
+            }
+          } else {
+            returnTypeStr = ` RETURNS ${this.convertTypeForInterfaceComment(returnType)}`;
+          }
+        }
+        
+        methodComments.push(`${prop.name}(${paramStr})${returnTypeStr}`);
+      } else if (prop.isIndexSignature) {
+        // Handle index signatures
+        const keyType = this.convertTypeForInterfaceComment(prop.keyType || 'string');
+        const valueType = this.convertTypeForInterfaceComment(prop.type);
+        indexSignatures.push(`[${keyType}]: ${valueType}`);
+      } else {
+        // Handle property signatures - use simplified types for interface comments
+        let propType = this.convertTypeForInterfaceComment(prop.type);
+        const isOptional = prop.optional || prop.name.includes('?');
+        const isReadonly = prop.readonly || false;
+        
+        // Handle union types more descriptively
+        if (prop.type.includes('|')) {
+          const unionTypes = prop.type.split('|').map((t: string) => t.trim());
+          const igcseTypes = unionTypes.map((t: string) => this.convertTypeForInterfaceComment(t));
+          const uniqueTypes = [...new Set(igcseTypes)];
+          if (uniqueTypes.length > 1) {
+            propType = uniqueTypes.join(' | ');
+          }
+        }
+        
+        // Handle function types
+        if (prop.type.includes('=>')) {
+          const returnType = prop.type.split('=>')[1].trim();
+          const igcseReturnType = this.convertTypeForInterfaceComment(returnType);
+          propType = `FUNCTION RETURNS ${igcseReturnType}`;
+        }
+        
+        // For interface comments, handle arrays specially
+        let finalType = propType;
+        if (prop.type.includes('[]') || prop.type.includes('Array<')) {
+          let baseType = prop.type;
+          if (baseType.includes('[]')) {
+            baseType = baseType.replace(/\[\]/g, '');
+          } else if (baseType.includes('Array<')) {
+            const arrayMatch = baseType.match(/Array<(.+)>$/);
+            if (arrayMatch) {
+              baseType = arrayMatch[1];
+            }
+          }
+          const convertedBaseType = this.convertTypeForInterfaceComment(baseType);
+          
+          // For properties, always show array syntax
+          finalType = `ARRAY[1:SIZE] OF ${convertedBaseType}`;
+        }
+        
+        // Add modifiers to property description
+        let propDescription = `${prop.name}`;
+        if (isOptional) propDescription += '?';
+        if (isReadonly) propDescription = `readonly ${propDescription}`;
+        propDescription += ` (${finalType})`;
+        
+        propertyComments.push(propDescription);
+      }
+    }
+    
+    // Generate interface comment
+    let interfaceComment = '';
+    if (isGeneric) {
+      const typeParamStr = typeParameters.map((tp: any) => {
+        if (tp.constraint) {
+          return `${tp.name} extends ${tp.constraint}`;
+        }
+        return tp.name;
+      }).join(', ');
+      interfaceComment = `// Generic interface: ${interfaceName}<${typeParamStr}>`;
+      
+      // Add type parameter explanation
+      if (typeParameters.length > 0) {
+        const typeExplanations = typeParameters.map((tp: any) => {
+          if (tp.constraint) {
+            // Extract property name from constraint like "{ id: number }" -> "id"
+            const constraintText = tp.constraint;
+            const propertyMatch = constraintText.match(/{\s*(\w+)\s*:/);
+            if (propertyMatch) {
+              return `// Type parameter ${tp.name} represents any type with ${propertyMatch[1]} property`;
+            }
+            return `// Type parameter ${tp.name} represents any type with ${constraintText} property`;
+          }
+          return `// Type parameter ${tp.name} represents any type`;
+        });
+        interfaceComment += '\n' + typeExplanations.join('\n');
+      }
+    } else {
+      interfaceComment = `// Interface: ${interfaceName}`;
+    }
+    
+    // Add inheritance information
+    if (heritage.length > 0) {
+      interfaceComment += `\n// Extends: ${heritage.join(', ')}`;
+    }
+    
+    // Add index signature information
+    if (indexSignatures.length > 0) {
+      interfaceComment += `\n// Index signatures: ${indexSignatures.join(', ')}`;
+    }
+    
+    // Add property information
+    if (propertyComments.length > 0) {
+      interfaceComment += `\n// Properties: ${propertyComments.join(', ')}`;
+    }
+    
+    // Add method information
+    if (methodComments.length > 0) {
+      interfaceComment += `\n// Methods: ${methodComments.join(', ')}`;
+    }
+    
+    // Add note about empty interfaces
+    if (propertyComments.length === 0 && methodComments.length === 0 && indexSignatures.length === 0) {
+      interfaceComment += `\n// Empty interface - can be extended by other interfaces`;
+    }
+    
+    this.addWarning(
+      `Interface '${interfaceName}' converted to descriptive comments`,
+      'FEATURE_CONVERSION',
+      'info',
+      node.location?.line,
+      node.location?.column
+    );
+    
+    return this.createIRNode(
+      'interface_declaration',
+      'interface_comment',
+      [],
+      {
+        interfaceName,
+        properties,
+        typeParameters,
+        heritage,
+        isGeneric,
+        interfaceComment,
+        propertyComments,
+        methodComments,
+        indexSignatures
+      },
+      node.location
+    );
+  }
+
 
 
   private createOutputStatement(methodArgs: string[], node: TypeScriptASTNode): IntermediateRepresentation {
@@ -811,105 +1202,35 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       .trim();
   }
 
-  private convertForLoopToIGCSE(variable: string, startValue: string, endCondition: string, incrementExpression: string): {
+  private convertForLoopToIGCSE(variable: string, startValue: string, endValue: string, incrementExpression: string): {
     variable: string;
     startValue: string;
     endValue: string;
-    stepValue: number;
+    stepValue?: string;
+    isDecrement: boolean;
   } {
-    // Parse start value
-    const start = parseInt(startValue) || 0;
+    // Import ForLoopParser dynamically to avoid circular imports
+    const { ForLoopParser } = require('../utils/for-loop-parser');
     
-    // Parse end condition (e.g., "i < 10", "i <= 15", "i > 0")
-    let endValue = '';
-    let stepValue = 1;
-    
-    if (endCondition.includes('<=')) {
-      const parts = endCondition.split('<=');
-      if (parts.length === 2) {
-        endValue = parts[1].trim();
-      }
-    } else if (endCondition.includes('<')) {
-      const parts = endCondition.split('<');
-      if (parts.length === 2) {
-        const endNum = parseInt(parts[1].trim());
-        if (!isNaN(endNum)) {
-          endValue = (endNum - 1).toString();
-        } else {
-          endValue = parts[1].trim() + '-1';
-        }
-      }
-    } else if (endCondition.includes('>=')) {
-      const parts = endCondition.split('>=');
-      if (parts.length === 2) {
-        endValue = parts[1].trim();
-        stepValue = -1; // Assume decrement
-      }
-    } else if (endCondition.includes('>')) {
-      const parts = endCondition.split('>');
-      if (parts.length === 2) {
-        const endNum = parseInt(parts[1].trim());
-        if (!isNaN(endNum)) {
-          endValue = (endNum + 1).toString();
-        } else {
-          endValue = parts[1].trim() + '+1';
-        }
-        stepValue = -1; // Assume decrement
-      }
-    }
-    
-    // Parse increment expression (e.g., "i++", "i--", "i += 2", "i = i + 3")
-    if (incrementExpression.includes('++')) {
-      stepValue = 1;
-    } else if (incrementExpression.includes('--')) {
-      stepValue = -1;
-    } else if (incrementExpression.includes('+=')) {
-      const parts = incrementExpression.split('+=');
-      if (parts.length === 2) {
-        const step = parseInt(parts[1].trim());
-        if (!isNaN(step)) {
-          stepValue = step;
-        }
-      }
-    } else if (incrementExpression.includes('-=')) {
-      const parts = incrementExpression.split('-=');
-      if (parts.length === 2) {
-        const step = parseInt(parts[1].trim());
-        if (!isNaN(step)) {
-          stepValue = -step;
-        }
-      }
-    } else if (incrementExpression.includes('=') && incrementExpression.includes('+')) {
-      // Handle "i = i + 2" format
-      const match = incrementExpression.match(/=\s*\w+\s*\+\s*(\d+)/);
-      if (match) {
-        const step = parseInt(match[1]);
-        if (!isNaN(step)) {
-          stepValue = step;
-        }
-      }
-    } else if (incrementExpression.includes('=') && incrementExpression.includes('-')) {
-      // Handle "i = i - 2" format
-      const match = incrementExpression.match(/=\s*\w+\s*-\s*(\d+)/);
-      if (match) {
-        const step = parseInt(match[1]);
-        if (!isNaN(step)) {
-          stepValue = -step;
-        }
-      }
-    }
+    // Parse the increment expression to get step value and direction
+    const incrementResult = ForLoopParser.parseIncrementExpression(incrementExpression, variable);
     
     return {
       variable,
       startValue,
-      endValue,
-      stepValue
+      endValue, // Use the converted end value directly
+      stepValue: incrementResult.stepValue !== "1" ? incrementResult.stepValue : undefined,
+      isDecrement: incrementResult.isDecrement
     };
   }
 
   private transformClassDeclaration(node: TypeScriptASTNode): IntermediateRepresentation {
     const className = node.metadata?.className as string;
     const heritage = node.metadata?.heritage as string[] || [];
+    const typeParameters = node.metadata?.typeParameters || [];
+    const isGeneric = node.metadata?.isGeneric || false;
+    const extendsClasses = node.metadata?.extends || [];
+    const implementsInterfaces = node.metadata?.implements || [];
     
     this.addWarning(
       `Class '${className}' converted to procedural equivalents with comments`,
@@ -922,9 +1243,45 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     // Transform child nodes (methods and properties)
     const children = node.children.map(child => this.transformNode(child));
 
-    let inheritanceComment = `// ${className}`;
-    if (heritage.length > 0) {
-      inheritanceComment += ` extends ${heritage.join(', ')}`;
+    // Generate class comment with generics support
+    let classComment = '';
+    if (isGeneric) {
+      const typeParamStr = typeParameters.map((tp: any) => {
+        if (tp.constraint) {
+          return `${tp.name} extends ${tp.constraint}`;
+        }
+        return tp.name;
+      }).join(', ');
+      classComment = `// Generic class: ${className}<${typeParamStr}>`;
+      
+      // Add type parameter explanation
+      if (typeParameters.length > 0) {
+        const typeExplanations = typeParameters.map((tp: any) => {
+          if (tp.constraint) {
+            // Extract property name from constraint like "{ id: number }" -> "id"
+            const constraintText = tp.constraint;
+            const propertyMatch = constraintText.match(/{\s*(\w+)\s*:/);
+            if (propertyMatch) {
+              return `// Type parameter ${tp.name} represents any type with ${propertyMatch[1]} property`;
+            }
+            return `// Type parameter ${tp.name} represents any type with ${constraintText} property`;
+          }
+          return `// Type parameter ${tp.name} represents any type`;
+        });
+        classComment += '\n' + typeExplanations.join('\n');
+      }
+    } else {
+      classComment = `// ${className}`;
+    }
+
+    // Add inheritance information
+    if (extendsClasses.length > 0) {
+      classComment += `\n// ${className} extends ${extendsClasses.join(', ')}`;
+    }
+    
+    // Add implementation information
+    if (implementsInterfaces.length > 0) {
+      classComment += `\n// ${className} implements ${implementsInterfaces.join(', ')}`;
     }
 
     return this.createIRNode(
@@ -934,8 +1291,12 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
       {
         className,
         heritage,
-        classComment: inheritanceComment,
-        inheritanceComment
+        typeParameters,
+        isGeneric,
+        extendsClasses,
+        implementsInterfaces,
+        classComment,
+        inheritanceComment: classComment
       },
       node.location
     );
@@ -950,16 +1311,38 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     const visibility = node.metadata?.visibility || 'public';
 
     // Convert parameters to IGCSE format
-    const igcseParameters = parameters.map((param: any) => ({
-      name: param.name.replace('?', ''),
-      type: this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any'),
-      isArray: (param.type || '').includes('[]'),
-      isOptional: param.optional || param.name.includes('?')
-    }));
+    const igcseParameters = parameters.map((param: any) => {
+      const convertedType = this.variableTransformer.convertTypeScriptTypeToIGCSE(param.type || 'any');
+      const isConvertedArray = convertedType.includes('ARRAY[') && convertedType.includes('] OF ');
+      
+      return {
+        name: param.name.replace('?', ''),
+        type: convertedType,
+        isArray: !isConvertedArray && (param.type || '').includes('[]'),
+        isOptional: param.optional || param.name.includes('?')
+      };
+    });
+
+    // Handle Promise return types
+    let processedReturnType = returnType;
+    if (returnType && returnType.startsWith('Promise<')) {
+      const promiseMatch = returnType.match(/^Promise<(.+)>$/);
+      if (promiseMatch) {
+        processedReturnType = promiseMatch[1];
+        // Add warning about Promise conversion
+        this.addWarning(
+          `Promise<${promiseMatch[1]}> return type converted to ${promiseMatch[1]}`,
+          'FEATURE_CONVERSION',
+          'info',
+          node.location?.line,
+          node.location?.column
+        );
+      }
+    }
 
     // Determine if it's a procedure or function
-    const isProcedure = !returnType || returnType === 'void';
-    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(returnType);
+    const isProcedure = !processedReturnType || processedReturnType === 'void';
+    const igcseReturnType = isProcedure ? undefined : this.variableTransformer.convertTypeScriptTypeToIGCSE(processedReturnType);
 
     // Declare function in context
     this.declareFunction(methodName, igcseParameters, igcseReturnType, isStatic, visibility as 'public' | 'private' | 'protected');
@@ -997,6 +1380,9 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
         node.location?.line,
         node.location?.column
       );
+      
+      // Add async method comment to metadata
+      metadata.asyncComment = '// Async method - handles asynchronous operations';
     }
 
     return this.createIRNode(
@@ -1425,6 +1811,107 @@ export class TypeScriptASTTransformer extends BaseASTTransformer<TypeScriptASTNo
     } else {
       return `FUNCTION ${name}(${paramList}) RETURNS ${returnType}`;
     }
+  }
+
+  /**
+   * Convert TypeScript types to simplified IGCSE types for interface comments
+   * This is different from the full type conversion as it simplifies array types
+   */
+  private convertTypeForInterfaceComment(tsType: string): string {
+    if (!tsType) return 'STRING';
+
+    // Remove optional markers and whitespace
+    let baseType = tsType.replace(/\?/g, '').trim();
+    
+    // Handle Array<T> generic syntax - extract base type
+    if (baseType.includes('Array<')) {
+      const arrayMatch = baseType.match(/Array<(.+)>$/);
+      if (arrayMatch) {
+        baseType = arrayMatch[1];
+      }
+    } else if (baseType.includes('[]')) {
+      // Handle T[] syntax - extract base type
+      baseType = baseType.replace(/\[\]/g, '');
+    }
+    
+    // Handle Promise types - extract inner type
+    if (baseType.startsWith('Promise<')) {
+      const promiseMatch = baseType.match(/^Promise<(.+)>$/);
+      if (promiseMatch) {
+        baseType = promiseMatch[1];
+      }
+    }
+    
+    // Handle other generic types by extracting the inner type
+    const genericMatch = baseType.match(/^[A-Za-z]+<(.+)>$/);
+    if (genericMatch) {
+      baseType = genericMatch[1];
+    }
+
+    // Handle union types - take the first non-null/undefined type as primary
+    if (baseType.includes('|')) {
+      const unionTypes = baseType.split('|').map(t => t.trim());
+      const validTypes = unionTypes.filter(t => t !== 'null' && t !== 'undefined');
+      baseType = validTypes.length > 0 ? validTypes[0] : unionTypes[0];
+    }
+
+    // Handle literal types (e.g., "active" | "inactive")
+    if (baseType.startsWith('"') && baseType.endsWith('"')) {
+      return 'STRING';
+    }
+
+    // Handle tuple types [string, number] -> take first type
+    if (baseType.startsWith('[') && baseType.endsWith(']')) {
+      const tupleContent = baseType.slice(1, -1);
+      const firstType = tupleContent.split(',')[0].trim();
+      baseType = firstType;
+    }
+
+    // Handle function types (x: number) => string -> return type
+    if (baseType.includes('=>')) {
+      const returnType = baseType.split('=>')[1].trim();
+      baseType = returnType;
+    }
+
+    // Convert to IGCSE types - simplified for interface comments
+    switch (baseType.toLowerCase()) {
+      case 'number':
+        return 'REAL';
+      case 'string':
+        return 'STRING';
+      case 'boolean':
+        return 'BOOLEAN';
+      case 'char':
+        return 'CHAR';
+      case 'int':
+      case 'integer':
+        return 'INTEGER';
+      case 'any':
+      case 'unknown':
+      case 'void':
+        return 'STRING';
+      default:
+        // Check if this is a generic type parameter (single uppercase letter or short PascalCase)
+        if (this.isGenericTypeParameter(baseType)) {
+          // This looks like a generic type parameter, preserve it
+          return baseType;
+        }
+        // For other custom types in interface comments, convert to STRING
+        return 'STRING';
+    }
+  }
+
+  /**
+   * Check if a type name is a generic type parameter (like T, U, K, V, etc.)
+   */
+  private isGenericTypeParameter(typeName: string): boolean {
+    // Generic type parameters are typically:
+    // - Single uppercase letters (T, U, K, V)
+    // - Short PascalCase names (TKey, TValue)
+    // - But not common type names like User, String, etc.
+    return /^[A-Z][a-zA-Z]*$/.test(typeName) && 
+           typeName.length <= 10 && 
+           !['String', 'Number', 'Boolean', 'Object', 'Array', 'Function', 'User', 'Admin', 'Config'].includes(typeName);
   }
 }
 

@@ -274,7 +274,7 @@
   - Write tests for various array indexing scenarios
   - _Requirements: 1.3, 4.4_
 
-- [ ] 17.3 Fix switch/case statement conversion
+- [x] 17.3 Fix switch/case statement conversion
   - Implement proper CASE/OF/OTHERWISE/ENDCASE structure for switch statements
   - Add `OTHERWISE` clause for default cases in switch statements
   - Handle multiple case values and fall-through behavior
@@ -282,7 +282,7 @@
   - Write tests for switch statement conversion
   - _Requirements: 1.2, 4.1_
 
-- [ ] 17.4 Improve TypeScript interface handling
+- [x] 17.4 Improve TypeScript interface handling
   - Convert TypeScript interfaces to descriptive comments with property information
   - Generate `// Interface: InterfaceName` comments
   - Include property type information in comments (e.g., `// Properties: id (REAL), name (STRING)`)
@@ -290,7 +290,7 @@
   - Write tests for interface conversion to comments
   - _Requirements: 2.2, 6.4_
 
-- [ ] 17.5 Enhance async/await and Promise handling
+- [x] 17.5 Enhance async/await and Promise handling
   - Add descriptive comments for async functions (`// Async function - handles asynchronous operations`)
   - Convert Promise types to appropriate IGCSE return types
   - Handle try/catch blocks in async functions
@@ -298,7 +298,7 @@
   - Write tests for async function conversion
   - _Requirements: 2.3, 6.4_
 
-- [ ] 17.6 Implement TypeScript generics handling
+- [x] 17.6 Implement TypeScript generics handling
   - Convert generic interfaces to descriptive comments (`// Generic interface: Repository<T>`)
   - Handle type parameters and constraints in comments
   - Convert generic classes with appropriate documentation

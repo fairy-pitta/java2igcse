@@ -237,8 +237,8 @@ describe('VariableDeclarationTransformer', () => {
         { line: 1, column: 1 }
       );
 
-      expect(result.ir.metadata.igcseType).toBe('STRING');
-      expect(result.ir.metadata.isArray).toBe(true);
+      expect(result.ir.metadata.igcseType).toBe('ARRAY[1:SIZE] OF STRING');
+      expect(result.ir.metadata.isArray).toBe(false); // Already handled in the type conversion
       expect(result.warnings).toHaveLength(1);
       expect(result.warnings[0]).toContain('Generic type');
     });

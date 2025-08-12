@@ -30,6 +30,14 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     this.currentIndentLevel = 0;
     
     try {
+      // Handle partial parse results
+      if (ir.metadata?.partialParse || ir.metadata?.transformError) {
+        this.addWarning(
+          'Generating pseudocode from partial parse result. Some features may be incomplete.',
+          'PARTIAL_GENERATION'
+        );
+      }
+      
       const pseudocode = this.generateNode(ir);
       return this.formatOutput(pseudocode, this.getDefaultFormattingOptions());
     } catch (error) {
@@ -37,7 +45,14 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         `Generation error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'GENERATION_ERROR'
       );
-      return '// Error generating pseudocode';
+      
+      // Try to generate partial pseudocode
+      try {
+        const partialPseudocode = this.generatePartialPseudocode(ir);
+        return this.formatOutput(partialPseudocode, this.getDefaultFormattingOptions());
+      } catch (secondError) {
+        return '// Error generating pseudocode - unable to process input';
+      }
     }
   }
 
@@ -100,6 +115,8 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
         return this.generateLiteral(node);
       case 'identifier':
         return this.generateIdentifier(node);
+      case 'interface_declaration':
+        return this.generateInterfaceDeclaration(node);
       default:
         this.addWarning(
           `Unknown node type: ${node.type}`,
@@ -241,6 +258,11 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     }
 
     const parts: string[] = [];
+    
+    // Add async comment if needed
+    if (metadata.asyncComment && this.options.includeComments) {
+      parts.push(this.addIndentation(metadata.asyncComment));
+    }
     
     // Add static comment if needed
     if (isStatic && this.options.includeComments) {
@@ -615,6 +637,7 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     const startValue = metadata.startValue;
     const endValue = metadata.endValue;
     const stepValue = metadata.stepValue;
+    const isDecrement = metadata.isDecrement;
     
     if (!variable || startValue === undefined || endValue === undefined) {
       this.addWarning(
@@ -627,8 +650,16 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     const parts: string[] = [];
     
     let forStatement = `FOR ${variable} ← ${startValue} TO ${endValue}`;
-    if (stepValue && stepValue !== 1) {
-      forStatement += ` STEP ${stepValue}`;
+    
+    // Add STEP clause if needed
+    if (stepValue && stepValue !== "1") {
+      if (isDecrement) {
+        forStatement += ` STEP -${stepValue}`;
+      } else {
+        forStatement += ` STEP ${stepValue}`;
+      }
+    } else if (isDecrement && !stepValue) {
+      forStatement += ` STEP -1`;
     }
     
     parts.push(this.addIndentation(forStatement));
@@ -919,6 +950,59 @@ export class IGCSEPseudocodeGenerator implements PseudocodeGenerator {
     }
     
     return parts.join('\n');
+  }
+
+  private generateInterfaceDeclaration(node: IntermediateRepresentation): string {
+    const metadata = node.metadata;
+    const interfaceComment = metadata.interfaceComment;
+    
+    if (!interfaceComment) {
+      this.addWarning(
+        'Interface declaration missing comment metadata',
+        'MISSING_METADATA'
+      );
+      return '// Interface declaration error';
+    }
+    
+    // Interface declarations are converted to comments only
+    if (this.options.includeComments) {
+      return this.addIndentation(interfaceComment);
+    }
+    
+    return ''; // If comments are disabled, interfaces produce no output
+  }
+
+  private generatePartialPseudocode(ir: IntermediateRepresentation): string {
+    const lines: string[] = [];
+    
+    // Add header comment for partial generation
+    lines.push('// Partial pseudocode generation - some features may be incomplete');
+    
+    if (ir.metadata?.errorMessage) {
+      lines.push(`// Error: ${ir.metadata.errorMessage}`);
+    }
+    
+    // Try to extract any recognizable patterns
+    if (ir.children && ir.children.length > 0) {
+      for (const child of ir.children) {
+        try {
+          const childPseudocode = this.generateNode(child);
+          if (childPseudocode.trim()) {
+            lines.push(childPseudocode);
+          }
+        } catch (error) {
+          lines.push(`// Unable to process: ${child.kind || child.type}`);
+        }
+      }
+    }
+    
+    // If no children could be processed, add a basic structure
+    if (lines.length <= 2) {
+      lines.push('// No recognizable code structure found');
+      lines.push('// Manual conversion may be required');
+    }
+    
+    return lines.join('\n');
   }
 
   private addWarning(message: string, code: string, severity: 'warning' | 'info' = 'warning'): void {

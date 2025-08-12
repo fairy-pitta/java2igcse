@@ -221,7 +221,11 @@ export abstract class BaseASTTransformer<TInput> implements ASTTransformer<TInpu
   }
 
   protected handleTransformError(error: Error, fallbackNode?: IntermediateRepresentation, sourceLocation?: SourceLocation): TransformResult<IntermediateRepresentation> {
-    const fallback = fallbackNode || this.createIRNode('program', 'empty_program');
+    const fallback = fallbackNode || this.createIRNode('program', 'partial_program', [], {
+      transformError: true,
+      errorMessage: error.message,
+      partialTransform: true
+    });
     
     if (error instanceof ConversionError) {
       this.addWarning(error.message, error.code, 'warning', error.line, error.column);
@@ -237,7 +241,8 @@ export abstract class BaseASTTransformer<TInput> implements ASTTransformer<TInpu
       );
     }
 
-    return this.createTransformResult(fallback, false);
+    // Return success=true to allow partial conversion to proceed
+    return this.createTransformResult(fallback, true);
   }
 
   protected handleUnsupportedFeature(

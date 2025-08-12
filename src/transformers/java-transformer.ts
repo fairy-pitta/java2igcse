@@ -31,10 +31,27 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
   transform(ast: JavaASTNode): TransformResult<IntermediateRepresentation> {
     try {
       this.resetWarnings();
+      
+      // Handle partial parse results
+      if (ast.metadata?.partialParse) {
+        this.addWarning(
+          'Processing partially parsed AST. Some features may not be converted correctly.',
+          ErrorCodes.PARTIAL_PARSE,
+          'warning'
+        );
+      }
+      
       const result = this.transformNode(ast);
       return this.createTransformResult(result);
     } catch (error) {
-      return this.handleTransformError(error as Error);
+      // Create a partial result with whatever we could transform
+      const partialResult = this.createIRNode('program', 'partial_program', [], {
+        transformError: true,
+        errorMessage: (error as Error).message,
+        originalAST: ast
+      });
+      
+      return this.handleTransformError(error as Error, partialResult);
     }
   }
 
@@ -277,6 +294,10 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
       case 'string':
         igcseType = 'STRING';
         igcseValue = `"${value}"`;
+        break;
+      case 'char':
+        igcseType = 'CHAR';
+        igcseValue = `'${value}'`;
         break;
       case 'boolean':
         igcseType = 'BOOLEAN';
@@ -626,25 +647,50 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
       end: endCondition
     };
     
-    // Convert for loop bounds using array indexing converter
-    const boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
-      variable,
-      startValue,
-      endCondition,
-      this.arrayIndexContext.arrayNames
-    );
+    // Only convert for loop bounds if the loop is iterating over arrays
+    const isArrayLoop = endCondition.includes('.length') || 
+                       endCondition.includes('LENGTH(') ||
+                       (this.arrayIndexContext.arrayNames && 
+                        this.arrayIndexContext.arrayNames.some(arrayName => endCondition.includes(arrayName)));
     
-    // Add warnings for bounds conversion
-    boundsConversion.warnings.forEach(warning => {
-      this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
-    });
-    
-    // If the start value was converted from 0 to 1, track this variable as converted
-    if (startValue === '0' && boundsConversion.startValue === '1') {
-      if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
-        this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
-        this.arrayIndexContext.convertedVariables.push(variable);
+    let boundsConversion;
+    if (isArrayLoop) {
+      // Convert for loop bounds using array indexing converter
+      boundsConversion = ArrayIndexingConverter.convertForLoopBounds(
+        variable,
+        startValue,
+        endCondition,
+        this.arrayIndexContext.arrayNames
+      );
+      
+      // Add warnings for bounds conversion
+      boundsConversion.warnings.forEach(warning => {
+        this.addWarning(warning, 'ARRAY_INDEX_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
+      
+      // If the start value was converted from 0 to 1, track this variable as converted
+      if (startValue === '0' && boundsConversion.startValue === '1') {
+        if (!this.arrayIndexContext.convertedVariables?.includes(variable)) {
+          this.arrayIndexContext.convertedVariables = this.arrayIndexContext.convertedVariables || [];
+          this.arrayIndexContext.convertedVariables.push(variable);
+        }
       }
+    } else {
+      // For non-array loops, use the original bounds but still parse them properly
+      const { ForLoopParser } = require('../utils/for-loop-parser');
+      const endResult = ForLoopParser.parseEndCondition(endCondition, variable);
+      
+      boundsConversion = {
+        startValue: startValue, // Keep original start value
+        endValue: endResult.endValue,
+        isDecrement: endResult.isDecrement,
+        warnings: endResult.warnings
+      };
+      
+      // Add warnings for bounds conversion
+      boundsConversion.warnings.forEach((warning: string) => {
+        this.addWarning(warning, 'FOR_LOOP_CONVERSION', 'info', node.location?.line, node.location?.column);
+      });
     }
     
     // Convert for loop to IGCSE format with converted bounds
@@ -664,6 +710,7 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
         startValue: forLoopData.startValue,
         endValue: forLoopData.endValue,
         stepValue: forLoopData.stepValue,
+        isDecrement: forLoopData.isDecrement,
         body,
         originalStartValue: startValue,
         originalEndCondition: endCondition
@@ -672,63 +719,25 @@ export class JavaASTTransformer extends BaseASTTransformer<JavaASTNode> {
     );
   }
 
-  private convertForLoopToIGCSE(variable: string, startValue: string, endCondition: string, incrementExpression: string): {
+  private convertForLoopToIGCSE(variable: string, startValue: string, endValue: string, incrementExpression: string): {
     variable: string;
     startValue: string;
     endValue: string;
-    stepValue: number;
+    stepValue?: string;
+    isDecrement: boolean;
   } {
-    // The startValue and endCondition have already been processed by ArrayIndexingConverter
-    // so we just need to determine the step value and format appropriately
+    // Import ForLoopParser dynamically to avoid circular imports
+    const { ForLoopParser } = require('../utils/for-loop-parser');
     
-    let stepValue = 1;
-    
-    // Parse increment expression (e.g., "i++", "i--", "i += 2", "i = i + 3")
-    if (incrementExpression.includes('++')) {
-      stepValue = 1;
-    } else if (incrementExpression.includes('--')) {
-      stepValue = -1;
-    } else if (incrementExpression.includes('+=')) {
-      const parts = incrementExpression.split('+=');
-      if (parts.length === 2) {
-        const step = parseInt(parts[1].trim());
-        if (!isNaN(step)) {
-          stepValue = step;
-        }
-      }
-    } else if (incrementExpression.includes('-=')) {
-      const parts = incrementExpression.split('-=');
-      if (parts.length === 2) {
-        const step = parseInt(parts[1].trim());
-        if (!isNaN(step)) {
-          stepValue = -step;
-        }
-      }
-    } else if (incrementExpression.includes('=') && incrementExpression.includes('+')) {
-      // Handle "i = i + 2" format
-      const match = incrementExpression.match(/=\s*\w+\s*\+\s*(\d+)/);
-      if (match) {
-        const step = parseInt(match[1]);
-        if (!isNaN(step)) {
-          stepValue = step;
-        }
-      }
-    } else if (incrementExpression.includes('=') && incrementExpression.includes('-')) {
-      // Handle "i = i - 2" format
-      const match = incrementExpression.match(/=\s*\w+\s*-\s*(\d+)/);
-      if (match) {
-        const step = parseInt(match[1]);
-        if (!isNaN(step)) {
-          stepValue = -step;
-        }
-      }
-    }
+    // Parse the increment expression to get step value and direction
+    const incrementResult = ForLoopParser.parseIncrementExpression(incrementExpression, variable);
     
     return {
       variable,
       startValue,
-      endValue: endCondition, // Use the converted end condition directly
-      stepValue
+      endValue, // Use the converted end value directly
+      stepValue: incrementResult.stepValue !== "1" ? incrementResult.stepValue : undefined,
+      isDecrement: incrementResult.isDecrement
     };
   }
 

@@ -72,6 +72,7 @@ export class JavaParser {
   private line: number = 1;
   private column: number = 1;
   private errors: ParseError[] = [];
+  private warnings: ParseError[] = [];
   private currentClassName: string | null = null;
 
   parse(sourceCode: string): JavaParseResult {
@@ -80,6 +81,7 @@ export class JavaParser {
     this.line = 1;
     this.column = 1;
     this.errors = [];
+    this.warnings = [];
 
     // Input validation - allow empty input for backward compatibility
     if (sourceCode === null || sourceCode === undefined) {
@@ -109,24 +111,38 @@ export class JavaParser {
       // Post-parse validation
       this.validateAST(ast);
       
+      // Even if there are errors, try to return a partial AST for better conversion
+      const hasOnlyWarnings = this.errors.every(e => e.severity === 'warning');
+      
       return {
         ast,
-        errors: this.errors,
-        success: this.errors.length === 0
+        errors: [...this.errors, ...this.warnings],
+        success: hasOnlyWarnings || this.errors.length === 0
       };
     } catch (error) {
+      // Try to create a partial AST even on parse failure
+      let partialAst: JavaASTNode;
+      
+      try {
+        // Attempt to parse what we can
+        partialAst = this.parsePartialProgram();
+      } catch (secondError) {
+        // If even partial parsing fails, create minimal AST
+        partialAst = { type: 'program', children: [], location: this.getCurrentLocation() };
+      }
+      
       const parseError: ParseError = {
         message: this.createDescriptiveErrorMessage(error),
         line: this.line,
         column: this.column,
         code: 'PARSE_ERROR',
-        severity: 'error'
+        severity: 'warning' // Treat as warning to allow partial conversion
       };
       
       return {
-        ast: { type: 'program', children: [], location: this.getCurrentLocation() },
-        errors: [...this.errors, parseError],
-        success: false
+        ast: partialAst,
+        errors: [...this.errors, parseError, ...this.warnings],
+        success: true // Allow partial conversion to proceed
       };
     }
   }
@@ -296,6 +312,47 @@ export class JavaParser {
       type: 'program',
       children: statements,
       location: { line: 1, column: 1 }
+    };
+  }
+
+  private parsePartialProgram(): JavaASTNode {
+    const statements: JavaASTNode[] = [];
+    let errorCount = 0;
+    const maxErrors = 10; // Limit error recovery attempts
+    
+    while (!this.isAtEnd() && errorCount < maxErrors) {
+      this.skipWhitespace();
+      if (this.isAtEnd()) break;
+      
+      try {
+        const statement = this.parseStatement();
+        if (statement) {
+          statements.push(statement);
+          errorCount = 0; // Reset error count on successful parse
+        }
+      } catch (error) {
+        errorCount++;
+        // Skip to next potential statement start
+        this.skipToNextStatement();
+        
+        // Add a placeholder for the failed statement
+        statements.push({
+          type: 'statement',
+          children: [],
+          location: this.getCurrentLocation(),
+          metadata: { 
+            parseError: true, 
+            errorMessage: error instanceof Error ? error.message : 'Parse error'
+          }
+        });
+      }
+    }
+
+    return {
+      type: 'program',
+      children: statements,
+      location: { line: 1, column: 1 },
+      metadata: { partialParse: true, errorCount }
     };
   }
 
@@ -721,6 +778,8 @@ export class JavaParser {
       return this.parseNumberLiteral();
     } else if (this.peek() === '"') {
       return this.parseStringLiteral();
+    } else if (this.peek() === "'") {
+      return this.parseCharLiteral();
     } else if (this.peek() === '{') {
       return this.parseArrayLiteral();
     } else {
@@ -902,6 +961,37 @@ export class JavaParser {
       children: [],
       location: startLocation,
       metadata: { literalType: 'string' }
+    };
+  }
+
+  private parseCharLiteral(): JavaASTNode {
+    const startLocation = this.getCurrentLocation();
+    let char = '';
+    
+    this.advance(); // consume opening '
+    
+    if (this.peek() === '\\') {
+      // Handle escape sequences
+      this.advance();
+      if (!this.isAtEnd()) {
+        char += this.advance();
+      }
+    } else if (this.peek() !== "'" && !this.isAtEnd()) {
+      char += this.advance();
+    }
+    
+    if (this.peek() === "'") {
+      this.advance(); // consume closing '
+    } else {
+      this.addError('Unterminated character literal');
+    }
+    
+    return {
+      type: 'literal',
+      value: char,
+      children: [],
+      location: startLocation,
+      metadata: { literalType: 'char' }
     };
   }
 
@@ -1774,6 +1864,34 @@ export class JavaParser {
     return true;
   }
 
+  private peekKeyword(keyword: string): boolean {
+    const saved = { position: this.position, line: this.line, column: this.column };
+    
+    // Check if we have enough characters left
+    if (this.position + keyword.length > this.source.length) {
+      return false;
+    }
+    
+    // Check if the keyword matches
+    for (let i = 0; i < keyword.length; i++) {
+      if (this.source[this.position + i] !== keyword[i]) {
+        return false;
+      }
+    }
+    
+    // Check that the next character is not alphanumeric (word boundary)
+    const nextChar = this.position + keyword.length < this.source.length 
+      ? this.source[this.position + keyword.length] 
+      : '\0';
+    
+    if (this.isAlphaNumeric(nextChar)) {
+      return false;
+    }
+    
+    // Don't advance position - just peek
+    return true;
+  }
+
   private peek(): string {
     if (this.isAtEnd()) return '\0';
     return this.source[this.position];
@@ -1971,7 +2089,13 @@ export class JavaParser {
       
       if (this.matchKeyword('case')) {
         this.skipWhitespace();
+        
+        // Capture the original case value text before parsing
+        const caseValueStart = this.position;
         const caseValue = this.parseExpression();
+        const caseValueEnd = this.position;
+        const originalCaseValue = this.source.substring(caseValueStart, caseValueEnd).trim();
+        
         this.skipWhitespace();
         
         if (this.peek() !== ':') {
@@ -1981,10 +2105,24 @@ export class JavaParser {
         this.advance();
         this.skipWhitespace();
         
-        // Parse case body
+        // Parse case body - stop when we encounter another case, default, or closing brace
         const caseBody: JavaASTNode[] = [];
+        let hasBreak = false;
+        
         while (!this.isAtEnd() && this.peek() !== '}' && 
-               !this.matchKeyword('case') && !this.matchKeyword('default')) {
+               !this.peekKeyword('case') && !this.peekKeyword('default')) {
+          // Skip break statements as they don't translate to IGCSE pseudocode
+          if (this.peekKeyword('break')) {
+            this.matchKeyword('break'); // consume the break
+            this.skipWhitespace();
+            if (this.peek() === ';') {
+              this.advance(); // consume semicolon
+            }
+            this.skipWhitespace();
+            hasBreak = true;
+            break; // Exit case body parsing
+          }
+          
           const stmt = this.parseStatement();
           if (stmt) {
             caseBody.push(stmt);
@@ -1992,12 +2130,20 @@ export class JavaParser {
           this.skipWhitespace();
         }
         
+        // Add warning for fall-through behavior (missing break)
+        if (!hasBreak && caseBody.length > 0) {
+          this.addWarning(
+            `Case '${originalCaseValue}' may fall through to next case (missing break statement)`,
+            'FALL_THROUGH_WARNING'
+          );
+        }
+        
         cases.push({
           type: 'case_statement',
           children: caseBody,
           location: this.getCurrentLocation(),
           metadata: {
-            value: caseValue.value
+            value: originalCaseValue || caseValue.value
           }
         });
       } else if (this.matchKeyword('default')) {
@@ -2010,10 +2156,21 @@ export class JavaParser {
         this.advance();
         this.skipWhitespace();
         
-        // Parse default body
+        // Parse default body - stop when we encounter another case, default, or closing brace
         const defaultBody: JavaASTNode[] = [];
         while (!this.isAtEnd() && this.peek() !== '}' && 
-               !this.matchKeyword('case') && !this.matchKeyword('default')) {
+               !this.peekKeyword('case') && !this.peekKeyword('default')) {
+          // Skip break statements as they don't translate to IGCSE pseudocode
+          if (this.peekKeyword('break')) {
+            this.matchKeyword('break'); // consume the break
+            this.skipWhitespace();
+            if (this.peek() === ';') {
+              this.advance(); // consume semicolon
+            }
+            this.skipWhitespace();
+            break; // Exit default body parsing
+          }
+          
           const stmt = this.parseStatement();
           if (stmt) {
             defaultBody.push(stmt);
@@ -2067,7 +2224,7 @@ export class JavaParser {
   }
 
   private addWarning(message: string, code: string): void {
-    this.errors.push({
+    this.warnings.push({
       message,
       line: this.line,
       column: this.column,
@@ -2081,14 +2238,28 @@ export class JavaParser {
   }
 
   private validateBasicSyntax(sourceCode: string): void {
-    // Check for common syntax issues
+    // Use ErrorHandler for comprehensive validation
+    const { ErrorHandler } = require('../utils/error-handler');
+    const validationResult = ErrorHandler.validateNestedStructure(sourceCode);
+    
+    // Convert validation errors to parser errors, but don't fail parsing
+    validationResult.errors.forEach((error: any) => {
+      this.addWarning(error.message, error.code);
+    });
+    
+    // Add validation warnings as parser warnings
+    validationResult.warnings.forEach((warning: any) => {
+      this.addWarning(warning.message, warning.code);
+    });
+
+    // Check for common syntax issues (but treat as warnings for better recovery)
     const openBraces = (sourceCode.match(/\{/g) || []).length;
     const closeBraces = (sourceCode.match(/\}/g) || []).length;
     
     if (openBraces !== closeBraces) {
-      this.addError(
-        `Mismatched braces: ${openBraces} opening braces, ${closeBraces} closing braces`,
-        'SYNTAX_ERROR'
+      this.addWarning(
+        `Mismatched braces: ${openBraces} opening braces, ${closeBraces} closing braces. Parser will attempt recovery.`,
+        'SYNTAX_WARNING'
       );
     }
 
@@ -2096,9 +2267,9 @@ export class JavaParser {
     const closeParens = (sourceCode.match(/\)/g) || []).length;
     
     if (openParens !== closeParens) {
-      this.addError(
-        `Mismatched parentheses: ${openParens} opening parentheses, ${closeParens} closing parentheses`,
-        'SYNTAX_ERROR'
+      this.addWarning(
+        `Mismatched parentheses: ${openParens} opening parentheses, ${closeParens} closing parentheses. Parser will attempt recovery.`,
+        'SYNTAX_WARNING'
       );
     }
 
@@ -2206,19 +2377,8 @@ export class JavaParser {
   }
 
   private createDescriptiveErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      const baseMessage = error.message;
-      const context = this.getParsingContext();
-      
-      // Enhance error message with context
-      if (context.nearbyText) {
-        return `${baseMessage} near "${context.nearbyText}" at line ${this.line}, column ${this.column}`;
-      } else {
-        return `${baseMessage} at line ${this.line}, column ${this.column}`;
-      }
-    }
-    
-    return `Unknown parse error at line ${this.line}, column ${this.column}`;
+    const { ErrorHandler } = require('../utils/error-handler');
+    return ErrorHandler.createDescriptiveErrorMessage(error, this.source, this.position);
   }
 
   private getParsingContext(): { nearbyText?: string; expectedTokens?: string[] } {

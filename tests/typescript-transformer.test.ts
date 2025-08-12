@@ -186,8 +186,9 @@ describe('TypeScriptASTTransformer', () => {
       const result = transformer.transform(ast);
 
       expect(result.success).toBe(true);
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0].message).toContain('Async function');
+      expect(result.warnings).toHaveLength(2);
+      expect(result.warnings.some(w => w.message.includes('Async function'))).toBe(true);
+      expect(result.warnings.some(w => w.message.includes('Promise<string>'))).toBe(true);
     });
   });
 
@@ -280,8 +281,8 @@ describe('TypeScriptASTTransformer', () => {
       const result = transformer.transform(ast);
 
       expect(result.success).toBe(true);
-      expect(result.result.metadata.igcseType).toBe('STRING');
-      expect(result.result.metadata.isArray).toBe(true);
+      expect(result.result.metadata.igcseType).toBe('ARRAY[1:SIZE] OF STRING');
+      expect(result.result.metadata.isArray).toBe(false); // Already handled in the type conversion
     });
 
     test('converts function types with warning', () => {

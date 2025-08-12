@@ -123,7 +123,8 @@ export type IRNodeType =
   | 'binary_operation'
   | 'unary_operation'
   | 'literal'
-  | 'identifier';
+  | 'identifier'
+  | 'interface_declaration';
 
 export interface SourceLocation {
   line: number;
@@ -300,20 +301,40 @@ export class Java2IGCSEConverterImpl implements Java2IGCSEConverter {
 
       // Step 1: Parse Java code
       const parseResult = this.javaParser.parse(sourceCode);
-      if (!parseResult.success) {
-        return this.createErrorResult(
-          'java',
-          `Parse error: ${parseResult.errors.map((e: any) => e.message).join(', ')}`,
-          'PARSE_ERROR',
-          startTime,
-          parseResult.errors.map((e: any) => ({
-            message: e.message,
-            line: e.line,
-            column: e.column,
-            code: e.code,
-            severity: e.severity as 'warning' | 'info'
-          }))
-        );
+      
+      // Check if we have critical parse errors (not just warnings)
+      const criticalErrors = parseResult.errors.filter((e: any) => e.severity === 'error');
+      const hasOnlyWarnings = criticalErrors.length === 0;
+      
+      if (!parseResult.success && !hasOnlyWarnings) {
+        // Try to proceed with partial parsing if we have some AST
+        if (parseResult.ast && parseResult.ast.children && parseResult.ast.children.length > 0) {
+          // Add parse errors as warnings and continue
+          parseResult.errors.forEach((error: any) => {
+            warnings.push({
+              message: error.message,
+              line: error.line,
+              column: error.column,
+              code: error.code,
+              severity: 'warning'
+            });
+          });
+        } else {
+          // Complete parse failure
+          return this.createErrorResult(
+            'java',
+            `Parse error: ${parseResult.errors.map((e: any) => e.message).join(', ')}`,
+            'PARSE_ERROR',
+            startTime,
+            parseResult.errors.map((e: any) => ({
+              message: e.message,
+              line: e.line,
+              column: e.column,
+              code: e.code,
+              severity: e.severity as 'warning' | 'info'
+            }))
+          );
+        }
       }
 
       // Add parse warnings
@@ -420,20 +441,40 @@ export class Java2IGCSEConverterImpl implements Java2IGCSEConverter {
 
       // Step 1: Parse TypeScript code
       const parseResult = this.typeScriptParser.parse(sourceCode);
-      if (!parseResult.success) {
-        return this.createErrorResult(
-          'typescript',
-          `Parse error: ${parseResult.errors.map((e: any) => e.message).join(', ')}`,
-          'PARSE_ERROR',
-          startTime,
-          parseResult.errors.map((e: any) => ({
-            message: e.message,
-            line: e.line,
-            column: e.column,
-            code: e.code,
-            severity: e.severity as 'warning' | 'info'
-          }))
-        );
+      
+      // Check if we have critical parse errors (not just warnings)
+      const criticalErrors = parseResult.errors.filter((e: any) => e.severity === 'error');
+      const hasOnlyWarnings = criticalErrors.length === 0;
+      
+      if (!parseResult.success && !hasOnlyWarnings) {
+        // Try to proceed with partial parsing if we have some AST
+        if (parseResult.ast && parseResult.ast.children && parseResult.ast.children.length > 0) {
+          // Add parse errors as warnings and continue
+          parseResult.errors.forEach((error: any) => {
+            warnings.push({
+              message: error.message,
+              line: error.line,
+              column: error.column,
+              code: error.code,
+              severity: 'warning'
+            });
+          });
+        } else {
+          // Complete parse failure
+          return this.createErrorResult(
+            'typescript',
+            `Parse error: ${parseResult.errors.map((e: any) => e.message).join(', ')}`,
+            'PARSE_ERROR',
+            startTime,
+            parseResult.errors.map((e: any) => ({
+              message: e.message,
+              line: e.line,
+              column: e.column,
+              code: e.code,
+              severity: e.severity as 'warning' | 'info'
+            }))
+          );
+        }
       }
 
       // Add parse warnings
